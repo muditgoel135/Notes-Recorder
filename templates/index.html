@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notes Recorder</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='bootstrap-css/bootstrap.min.css') }}">
+
+</head>
+
+<body>
+    <div class="container mt-5">
+        <h1 class="text-center mb-4">Notes Recorder</h1>
+        <div class="text-center mb-4">
+            <form id="upload-form" action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
+                <label for="file" class="form-label">Upload an audio file:
+                    <input type="file" name="file" accept=".wav,.mp3,.ogg,.webm,.m4a,.mp4" required>
+                </label>
+                <button type="submit" class="btn btn-success">Upload</button>
+            </form>
+
+            <form id="start-recording-form" class="mt-3">
+                <div>
+                    <label>
+                        <input type="radio" name="subject" value="Math" required> Math
+                    </label>
+                    <label>
+                        <input type="radio" name="subject" value="Physics" required> Physics
+                    </label>
+                    <label>
+                        <input type="radio" name="subject" value="Chemistry" required> Chemistry
+                    </label>
+                    <label>
+                        <input type="radio" name="subject" value="Biology" required> Biology
+                    </label>
+                    <label>
+                        <input type="radio" name="subject" value="English" required> English
+                    </label>
+                    <label>
+                        <input type="radio" name="subject" value="Hindi" required> Hindi
+                    </label>
+                </div>
+                <div class="mt-2">
+                    <label for="record_duration">Recording Duration (seconds):</label>
+                    <input type="number" name="record_duration" id="record_duration" min="1" required>
+                </div><br>
+                <button type="submit" id="start-button" class="btn btn-primary">Start Recording</button>
+            </form>
+
+            <form id="stop-recording-form" class="mt-3">
+                <button type="submit" id="stop-button" class="btn btn-danger" disabled>Stop Recording</button>
+            </form>
+            <div id="recording-status" class="mt-3"></div>
+        </div>
+        <div id="recordings-list" class="mt-4">
+            {% if notes %}
+            <h2 class="h4">Recordings</h2>
+            <div class="list-group">
+                {% for note in notes %}
+                <div class="list-group-item">
+                    <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap">
+                        <div>
+                            <strong>{{ note.subject or "Untitled" }}</strong>
+                            <div class="text-muted small">{{ note.date }} {{ note.start_time }} - {{ note.end_time }}
+                            </div>
+                        </div>
+
+                        <div>
+                            <form action="{{ '/delete/' + note.id|string }}" method="post" class="mb-0">
+                                <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                            </form>
+                        </div>
+
+                        {% if note.recording_path %}
+                        <audio controls
+                            src="{{ url_for('recording_file', filename=note.recording_path.split('/')[-1]) }}">
+                        </audio>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='bootstrap-js/bootstrap.bundle.min.js') }}"></script>
+    <script>
+        const startForm = document.getElementById("start-recording-form");
+        const stopForm = document.getElementById("stop-recording-form");
+        const startButton = document.getElementById("start-button");
+        const stopButton = document.getElementById("stop-button");
+        const statusBox = document.getElementById("recording-status");
+
+        let mediaRecorder;
+        let audioChunks = [];
+        let recordingTimer;
+        let recordingStartTime;
+
+        function setStatus(message, isError = false) {
+            statusBox.textContent = message;
+            statusBox.className = isError ? "mt-3 text-danger" : "mt-3 text-muted";
+        }
+
+        function getSelectedSubject() {
+            const selected = startForm.querySelector("input[name='subject']:checked");
+            return selected ? selected.value : "";
+        }
+
+        function getTimeString(date) {
+            return date.toTimeString().slice(0, 8);
+        }
+
+        function getSupportedMimeType() {
+            const mimeTypes = [
+                "audio/webm;codecs=opus",
+                "audio/webm",
+                "audio/ogg;codecs=opus",
+                "audio/mp4"
+            ];
+            return mimeTypes.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+        }
+
+        function getExtension(mimeType) {
+            if (mimeType.includes("ogg")) {
+                return "ogg";
+            }
+            if (mimeType.includes("mp4")) {
+                return "mp4";
+            }
+            return "webm";
+        }
+
+        async function uploadRecording(blob, extension) {
+            const endTime = new Date();
+            const formData = new FormData();
+            formData.append("audio", blob, `recording.${extension}`);
+            formData.append("subject", getSelectedSubject());
+            formData.append("start_time", getTimeString(recordingStartTime));
+            formData.append("end_time", getTimeString(endTime));
+
+            const response = await fetch("{{ url_for('save_recording') }}", {
+                method: "POST",
+                body: formData
+            });
+
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.error || "Could not save recording.");
+            }
+        }
+
+        startForm.addEventListener("submit", async (event) => {
+            event.preventDefault();
+
+            if (!startForm.checkValidity()) {
+                startForm.reportValidity();
+                return;
+            }
+
+            if (!navigator.mediaDevices || !window.MediaRecorder) {
+                setStatus("Recording is not supported in this browser.", true);
+                return;
+            }
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                audioChunks = [];
+                const mimeType = getSupportedMimeType();
+                const recorderOptions = mimeType ? { mimeType } : {};
+                mediaRecorder = new MediaRecorder(stream, recorderOptions);
+                recordingStartTime = new Date();
+
+                mediaRecorder.addEventListener("dataavailable", (event) => {
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                    }
+                });
+
+                mediaRecorder.addEventListener("stop", async () => {
+                    clearTimeout(recordingTimer);
+                    startButton.disabled = false;
+                    stopButton.disabled = true;
+                    stream.getTracks().forEach((track) => track.stop());
+
+                    try {
+                        const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
+                        await uploadRecording(blob, getExtension(mediaRecorder.mimeType));
+                        setStatus("Recording saved.");
+                        window.location.reload();
+                    } catch (error) {
+                        setStatus(error.message, true);
+                    }
+                });
+
+                mediaRecorder.start();
+                startButton.disabled = true;
+                stopButton.disabled = false;
+                setStatus("Recording...");
+
+                const duration = Number(document.getElementById("record_duration").value);
+                recordingTimer = setTimeout(() => {
+                    if (mediaRecorder && mediaRecorder.state === "recording") {
+                        mediaRecorder.stop();
+                    }
+                }, duration * 1000);
+            } catch (error) {
+                startButton.disabled = false;
+                stopButton.disabled = true;
+                setStatus("Microphone access was denied or unavailable.", true);
+            }
+        });
+
+        stopForm.addEventListener("submit", (event) => {
+            event.preventDefault();
+            if (mediaRecorder && mediaRecorder.state === "recording") {
+                mediaRecorder.stop();
+            }
+        });
+    </script>
+</body>

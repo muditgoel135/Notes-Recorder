@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# AI agents and tools
+.agents/
+
+# Output of the recorder tool
+recordings/
