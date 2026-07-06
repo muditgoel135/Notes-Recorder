@@ -1,0 +1,129 @@
+{% if notes %}
+<h2 class="h4">Recordings</h2>
+<div class="list-group">
+    {% for note in notes %}
+    <div class="list-group-item">
+        <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap">
+            <div>
+                <strong>{{ note.subject or "Untitled" }}</strong>
+                <div class="text-muted small">{{ note.date }} {{ note.start_time }} - {{ note.end_time }}
+                </div>
+            </div>
+
+            <div>
+                <form action="{{ '/delete/' + note.id|string }}" method="post" class="mb-0">
+                    <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                </form>
+            </div>
+
+            {% if note.recording_path %}
+            <audio controls
+                src="{{ url_for('recording_file', filename=note.recording_path.split('/')[-1]) }}">
+            </audio>
+            {% endif %}
+        </div>
+
+        <div class="mt-3">
+            {% if note.transcription_status == "completed" %}
+            {% if note.key_points_status == "completed" %}
+            <div class="note-display" data-note-id="{{ note.id }}">
+                <div class="d-flex justify-content-between align-items-start gap-2">
+                    {% if note.title %}
+                    <div class="fw-semibold mb-2">{{ note.title }}</div>
+                    {% else %}
+                    <div></div>
+                    {% endif %}
+                    <button class="btn btn-link btn-sm ps-0 edit-note-btn" type="button"
+                        data-note-id="{{ note.id }}">
+                        Edit
+                    </button>
+                </div>
+                {% if note.key_points %}
+                {% if note.key_points | length > 500 %}
+                <div class="mb-0 markdown-content collapse" id="keypoints-{{ note.id }}">
+                    <div class="small text-muted mb-1">Key Points</div>
+                    {{ note.key_points | markdown }}
+                </div>
+                <button class="btn btn-link btn-sm ps-0 mt-1" type="button" data-bs-toggle="collapse"
+                    data-bs-target="#keypoints-{{ note.id }}" aria-expanded="false"
+                    aria-controls="keypoints-{{ note.id }}">
+                    Show key points
+                </button>
+                {% else %}
+                <div class="small text-muted mb-1">Key Points</div>
+                <div class="mb-0 markdown-content">{{ note.key_points | markdown }}</div>
+                {% endif %}
+                {% endif %}
+            </div>
+
+            <div class="note-edit-form d-none" data-note-id="{{ note.id }}">
+                <input type="text" class="form-control form-control-sm mb-2 note-title-input"
+                    placeholder="Title" value="{{ note.title or '' }}">
+                <textarea class="form-control form-control-sm mb-2 note-keypoints-input" rows="8"
+                    placeholder="Key points (markdown)">{{ note.key_points or '' }}</textarea>
+                <button class="btn btn-sm btn-primary save-note-btn" type="button"
+                    data-note-id="{{ note.id }}">
+                    Save
+                </button>
+                <button class="btn btn-sm btn-secondary cancel-note-btn" type="button">Cancel</button>
+                <div class="small text-danger note-edit-error mt-1 d-none"></div>
+            </div>
+            {% elif note.key_points_status in ("pending", "processing") %}
+            <div class="small text-muted mb-2">Extracting key points...</div>
+            <p class="mb-0 note-text">{{ note.transcription or "No speech detected." }}</p>
+            {% elif note.key_points_status == "failed" %}
+            <div class="small text-danger mb-1">
+                Key point extraction failed{% if note.key_points_error %}: {{ note.key_points_error }}
+                {% endif %}
+            </div>
+            <p class="mb-0 note-text">{{ note.transcription or "No speech detected." }}</p>
+            {% else %}
+            <p class="mb-0 note-text">{{ note.transcription or "No speech detected." }}</p>
+            {% endif %}
+
+            {% if note.key_points_status == "completed" and note.key_points %}
+            <button class="btn btn-link btn-sm ps-0 mt-1" type="button" data-bs-toggle="collapse"
+                data-bs-target="#transcript-{{ note.id }}">
+                Show full transcript
+            </button>
+            <div class="collapse" id="transcript-{{ note.id }}">
+                <div class="small text-muted mb-1">Full Transcript</div>
+                <p class="mb-0 note-text">{{ note.transcription or "No speech detected." }}</p>
+            </div>
+            {% endif %}
+            {% elif note.transcription_status == "processing" %}
+            <div class="small text-muted">Transcribing...</div>
+            {% elif note.transcription_status == "failed" %}
+            <div class="small text-danger">
+                Transcription failed{% if note.transcription_error %}: {{ note.transcription_error }}{%
+                endif %}
+            </div>
+            {% else %}
+            <div class="small text-muted">Transcription pending...</div>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<nav class="d-flex justify-content-between align-items-center mt-3" id="pagination-controls">
+    <button id="prev-page-btn" class="btn btn-outline-secondary btn-sm" {% if page <= 1 %}disabled{% endif %}
+        data-page="{{ page - 1 }}">
+        Previous
+    </button>
+    <span class="text-muted small">Page {{ page }} of {{ total_pages }} ({{ total }} result{{ "s" if total != 1
+        }})</span>
+    <button id="next-page-btn" class="btn btn-outline-secondary btn-sm" {% if page >= total_pages %}disabled{% endif
+        %} data-page="{{ page + 1 }}">
+        Next
+    </button>
+</nav>
+{% else %}
+<p class="text-muted">
+    {% if has_filters %}
+    No recordings match your search/filters.
+    {% else %}
+    No recordings yet.
+    {% endif %}
+</p>
+{% endif %}

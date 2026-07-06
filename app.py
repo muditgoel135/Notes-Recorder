@@ -120,19 +120,127 @@ def init_database():
                 )
 
 
+DEFAULT_PER_PAGE = 30
+
+
+def build_notes_query(search=None, date_from=None, date_to=None, time_from=None, time_to=None):
+    query = Note.query
+
+    if search:
+        like_pattern = f"%{search}%"
+        query = query.filter(
+            db.or_(
+                Note.title.ilike(like_pattern),
+                Note.transcription.ilike(like_pattern),
+                Note.subject.ilike(like_pattern),
+                Note.key_points.ilike(like_pattern),
+            )
+        )
+
+    if date_from:
+        query = query.filter(Note.date >= date_from)
+    if date_to:
+        query = query.filter(Note.date <= date_to)
+
+    if time_from:
+        query = query.filter(Note.start_time >= (time_from + ":00" if len(time_from) == 5 else time_from))
+    if time_to:
+        query = query.filter(Note.start_time <= (time_to + ":59" if len(time_to) == 5 else time_to))
+
+    return query.order_by(Note.id.desc())
+
+
+def parse_notes_filters_from_request():
+    return {
+        "search": (request.args.get("q") or "").strip(),
+        "date_from": (request.args.get("date_from") or "").strip() or None,
+        "date_to": (request.args.get("date_to") or "").strip() or None,
+        "time_from": (request.args.get("time_from") or "").strip() or None,
+        "time_to": (request.args.get("time_to") or "").strip() or None,
+    }
+
+
+def check_has_active_transcription():
+    return db.session.query(
+        Note.query.filter(
+            db.or_(
+                Note.transcription_status.in_(
+                    [TRANSCRIPTION_PENDING, TRANSCRIPTION_PROCESSING]
+                ),
+                Note.key_points_status.in_([KEY_POINTS_PENDING, KEY_POINTS_PROCESSING]),
+            )
+        ).exists()
+    ).scalar()
+
+
 # Flask routes
 @app.route("/")
 def index():
-    notes = Note.query.order_by(Note.id.desc()).all()
-    has_active_transcription = any(
-        note.transcription_status in {TRANSCRIPTION_PENDING, TRANSCRIPTION_PROCESSING}
-        or note.key_points_status in {KEY_POINTS_PENDING, KEY_POINTS_PROCESSING}
-        for note in notes
+    filters = parse_notes_filters_from_request()
+    page = request.args.get("page", 1, type=int)
+    if page < 1:
+        page = 1
+
+    pagination = build_notes_query(**filters).paginate(
+        page=page, per_page=DEFAULT_PER_PAGE, error_out=False
     )
+
+    has_active_transcription = check_has_active_transcription()
+    has_filters = bool(
+        filters["search"]
+        or filters["date_from"]
+        or filters["date_to"]
+        or filters["time_from"]
+        or filters["time_to"]
+    )
+
     return render_template(
         "index.html",
-        notes=notes,
+        notes=pagination.items,
+        page=pagination.page,
+        total_pages=pagination.pages or 1,
+        total=pagination.total,
         has_active_transcription=has_active_transcription,
+        has_filters=has_filters,
+    )
+
+
+@app.route("/api/notes")
+def api_notes():
+    filters = parse_notes_filters_from_request()
+    page = request.args.get("page", 1, type=int)
+    if page < 1:
+        page = 1
+
+    pagination = build_notes_query(**filters).paginate(
+        page=page, per_page=DEFAULT_PER_PAGE, error_out=False
+    )
+
+    has_filters = bool(
+        filters["search"]
+        or filters["date_from"]
+        or filters["date_to"]
+        or filters["time_from"]
+        or filters["time_to"]
+    )
+
+    html = render_template(
+        "_notes_list.html",
+        notes=pagination.items,
+        page=pagination.page,
+        total_pages=pagination.pages or 1,
+        total=pagination.total,
+        has_filters=has_filters,
+    )
+
+    return jsonify(
+        {
+            "html": html,
+            "page": pagination.page,
+            "total_pages": pagination.pages or 1,
+            "total": pagination.total,
+            "has_active_transcription": check_has_active_transcription(),
+        }
     )
 
 
@@ -164,9 +272,7 @@ def update_transcription_status(note_id, status, transcription=None, error=None)
     return note
 
 
-def update_key_points_status(
-    note_id, status, title=None, key_points=None, error=None
-):
+def update_key_points_status(note_id, status, title=None, key_points=None, error=None):
     note = db.session.get(Note, note_id)
     if not note:
         return None
@@ -254,7 +360,7 @@ def extract_key_points(note_id, transcript):
                                 "with ONLY a JSON object of the form "
                                 '{"title": "short descriptive title (max 8 words)", '
                                 '"key_points": "markdown notes summarizing the '
-                                'transcript"}. In key_points, use \'## \' headings '
+                                "transcript\"}. In key_points, use '## ' headings "
                                 "to group related points into sections when the "
                                 "transcript covers multiple topics, and '-' for "
                                 "bullets under each heading. Nested bullets must be "
@@ -396,6 +502,19 @@ def upload():
 @app.route("/recordings/<path:filename>")
 def recording_file(filename):
     return send_from_directory(RECORDINGS_DIR, filename)
+
+
+@app.route("/update_note/<int:note_id>", methods=["POST"])
+def update_note(note_id):
+    note = Note.query.get_or_404(note_id)
+    data = request.get_json(silent=True) or {}
+    title = (data.get("title") or "").strip()
+    key_points = (data.get("key_points") or "").strip()
+
+    note.title = title[:200] or None
+    note.key_points = key_points or None
+    db.session.commit()
+    return jsonify({"message": "Note updated."})
 
 
 @app.route("/delete/<int:note_id>", methods=["POST"])
