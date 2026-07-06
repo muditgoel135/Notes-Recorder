@@ -17,8 +17,7 @@
             </div>
 
             {% if note.recording_path %}
-            <audio controls
-                src="{{ url_for('recording_file', filename=note.recording_path.split('/')[-1]) }}">
+            <audio controls src="{{ url_for('recording_file', filename=note.recording_path.split('/')[-1]) }}">
             </audio>
             {% endif %}
         </div>
@@ -33,8 +32,7 @@
                     {% else %}
                     <div></div>
                     {% endif %}
-                    <button class="btn btn-link btn-sm ps-0 edit-note-btn" type="button"
-                        data-note-id="{{ note.id }}">
+                    <button class="btn btn-link btn-sm ps-0 edit-note-btn" type="button" data-note-id="{{ note.id }}">
                         Edit
                     </button>
                 </div>
@@ -57,12 +55,11 @@
             </div>
 
             <div class="note-edit-form d-none" data-note-id="{{ note.id }}">
-                <input type="text" class="form-control form-control-sm mb-2 note-title-input"
-                    placeholder="Title" value="{{ note.title or '' }}">
+                <input type="text" class="form-control form-control-sm mb-2 note-title-input" placeholder="Title"
+                    value="{{ note.title or '' }}">
                 <textarea class="form-control form-control-sm mb-2 note-keypoints-input" rows="8"
                     placeholder="Key points (markdown)">{{ note.key_points or '' }}</textarea>
-                <button class="btn btn-sm btn-primary save-note-btn" type="button"
-                    data-note-id="{{ note.id }}">
+                <button class="btn btn-sm btn-primary save-note-btn" type="button" data-note-id="{{ note.id }}">
                     Save
                 </button>
                 <button class="btn btn-sm btn-secondary cancel-note-btn" type="button">Cancel</button>
@@ -107,17 +104,18 @@
 </div>
 
 <nav class="d-flex justify-content-between align-items-center mt-3" id="pagination-controls">
-    <button id="prev-page-btn" class="btn btn-outline-secondary btn-sm" {% if page <= 1 %}disabled{% endif %}
+    <button id="prev-page-btn" class="btn btn-outline-secondary btn-sm" {% if page <=1 %}disabled{% endif %}
         data-page="{{ page - 1 }}">
         Previous
     </button>
     <span class="text-muted small">Page {{ page }} of {{ total_pages }} ({{ total }} result{{ "s" if total != 1
         }})</span>
-    <button id="next-page-btn" class="btn btn-outline-secondary btn-sm" {% if page >= total_pages %}disabled{% endif
+    <button id="next-page-btn" class="btn btn-outline-secondary btn-sm" {% if page>= total_pages %}disabled{% endif
         %} data-page="{{ page + 1 }}">
         Next
     </button>
 </nav>
+
 {% else %}
 <p class="text-muted">
     {% if has_filters %}

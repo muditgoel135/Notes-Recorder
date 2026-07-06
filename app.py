@@ -43,6 +43,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RECORDINGS_DIR = os.path.join(BASE_DIR, "recordings")
 if not os.path.exists(RECORDINGS_DIR):
     os.makedirs(RECORDINGS_DIR)
+
 ALLOWED_EXTENSIONS = {"wav", "mp3", "ogg", "webm", "m4a", "mp4"}
 TRANSCRIPTION_PENDING = "pending"
 TRANSCRIPTION_PROCESSING = "processing"
@@ -78,12 +79,14 @@ class Note(db.Model):
     transcription_status = db.Column(
         db.String(20), nullable=False, default=TRANSCRIPTION_PENDING
     )
+
     transcription_error = db.Column(db.Text, nullable=True)
     title = db.Column(db.String(200), nullable=True)
     key_points = db.Column(db.Text, nullable=True)
     key_points_status = db.Column(
         db.String(20), nullable=False, default=KEY_POINTS_PENDING
     )
+
     key_points_error = db.Column(db.Text, nullable=True)
 
 
@@ -123,7 +126,9 @@ def init_database():
 DEFAULT_PER_PAGE = 30
 
 
-def build_notes_query(search=None, date_from=None, date_to=None, time_from=None, time_to=None):
+def build_notes_query(
+    search=None, date_from=None, date_to=None, time_from=None, time_to=None
+):
     query = Note.query
 
     if search:
@@ -139,13 +144,19 @@ def build_notes_query(search=None, date_from=None, date_to=None, time_from=None,
 
     if date_from:
         query = query.filter(Note.date >= date_from)
+    
     if date_to:
         query = query.filter(Note.date <= date_to)
 
     if time_from:
-        query = query.filter(Note.start_time >= (time_from + ":00" if len(time_from) == 5 else time_from))
+        query = query.filter(
+            Note.start_time >= (time_from + ":00" if len(time_from) == 5 else time_from)
+        )
+    
     if time_to:
-        query = query.filter(Note.start_time <= (time_to + ":59" if len(time_to) == 5 else time_to))
+        query = query.filter(
+            Note.start_time <= (time_to + ":59" if len(time_to) == 5 else time_to)
+        )
 
     return query.order_by(Note.id.desc())
 
@@ -256,6 +267,7 @@ def get_whisper_model():
                 import whisper
 
                 whisper_model = whisper.load_model(WHISPER_MODEL_NAME)
+    
     return whisper_model
 
 
@@ -267,6 +279,7 @@ def update_transcription_status(note_id, status, transcription=None, error=None)
     note.transcription_status = status
     if transcription is not None:
         note.transcription = transcription
+    
     note.transcription_error = error
     db.session.commit()
     return note
@@ -280,8 +293,10 @@ def update_key_points_status(note_id, status, title=None, key_points=None, error
     note.key_points_status = status
     if title is not None:
         note.title = title
+    
     if key_points is not None:
         note.key_points = key_points
+    
     note.key_points_error = error
     db.session.commit()
     return note
@@ -463,6 +478,7 @@ def save_audio_file(file_storage, subject, start_time=None, end_time=None):
         recording_path=relative_path,
         transcription_status=TRANSCRIPTION_PENDING,
     )
+    
     db.session.add(new_note)
     db.session.commit()
     enqueue_transcription(new_note.id, file_path)
