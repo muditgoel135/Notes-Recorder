@@ -1,6 +1,6 @@
-﻿# Notes Recorder
+# Notes Recorder
 
-A small Flask app for recording class notes from the browser microphone, saving the audio locally, and listing saved recordings for playback.
+A small Flask app for recording class notes from the browser microphone, transcribing them automatically, extracting key points, and browsing saved notes.
 
 ## Features
 
@@ -8,9 +8,14 @@ A small Flask app for recording class notes from the browser microphone, saving 
 - Choose a subject before recording.
 - Start and stop recordings manually.
 - Save recordings to the local `recordings/` folder.
-- Store recording metadata in SQLite.
 - Upload existing audio files.
 - Play saved recordings from the app.
+- Automatic background transcription using OpenAI Whisper.
+- Automatic title and key-points extraction from the transcript using Ollama.
+- Inline editing of note title and key points.
+- Search and filter notes by text, date range, and time range.
+- Paginated notes list.
+- Store recording and note metadata in SQLite.
 
 ## Tech Stack
 
@@ -20,6 +25,8 @@ A small Flask app for recording class notes from the browser microphone, saving 
 - SQLite
 - Browser `MediaRecorder` API
 - Bootstrap
+- OpenAI Whisper (speech-to-text)
+- Ollama API (title and key-points generation)
 
 ## Project Structure
 
@@ -28,7 +35,8 @@ Notes-Recorder/
 |-- app.py
 |-- requirements.txt
 |-- templates/
-|   `-- index.html
+|   |-- index.html
+|   `-- _notes_list.html
 |-- static/
 |-- recordings/
 `-- instance/
@@ -51,7 +59,13 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
-Optional: create a `.env` file or set a `SECRET_KEY` environment variable for Flask sessions.
+Optional environment variables (e.g. in a `.env` file):
+
+- `SECRET_KEY` — Flask session secret.
+- `WHISPER_MODEL` — Whisper model size to load (default `base`).
+- `OLLAMA_API_KEY` — API key for Ollama's hosted chat API. Required for title/key-points extraction; without it, key-points extraction fails for each note but transcription still works.
+- `OLLAMA_MODEL` — Ollama model used for key-points extraction (default `gpt-oss:20b`).
+- `TRANSCRIBE_EXISTING_ON_STARTUP` — set to `false` to skip re-queuing any pending transcriptions/key-points on startup (default `true`).
 
 ## Run
 
@@ -72,8 +86,12 @@ http://127.0.0.1:5000/
 3. Allow microphone permission in the browser.
 4. Click **Stop Recording** when you are done.
 5. The recording is saved and appears in the recordings list.
+6. Transcription and key-points extraction run in the background; the list updates automatically as they complete.
+7. Edit a note's title or key points inline if needed.
 
 You can also upload existing `.wav`, `.mp3`, `.ogg`, `.webm`, `.m4a`, or `.mp4` audio files.
+
+Use the search box and date/time filters above the notes list to find recordings, and page through results when there are many notes.
 
 ## Notes
 
@@ -81,3 +99,5 @@ You can also upload existing `.wav`, `.mp3`, `.ogg`, `.webm`, `.m4a`, or `.mp4` 
 - The app records from the browser microphone, not the server machine's microphone.
 - Saved recording files are ignored by Git through `recordings/` in `.gitignore`.
 - The app creates or updates its SQLite tables on startup.
+- Transcription and key-points extraction run one at a time in a background worker; large backlogs process sequentially.
+- The first transcription run downloads the selected Whisper model, which can take a while depending on model size and network speed.
