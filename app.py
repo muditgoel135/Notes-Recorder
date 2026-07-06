@@ -12,6 +12,8 @@ from sqlalchemy import inspect, text
 import os
 import datetime
 import uuid
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from werkzeug.utils import secure_filename
 
 # Flask settings
@@ -27,6 +29,17 @@ RECORDINGS_DIR = os.path.join(BASE_DIR, "recordings")
 if not os.path.exists(RECORDINGS_DIR):
     os.makedirs(RECORDINGS_DIR)
 ALLOWED_EXTENSIONS = {"wav", "mp3", "ogg", "webm", "m4a", "mp4"}
+TRANSCRIPTION_PENDING = "pending"
+TRANSCRIPTION_PROCESSING = "processing"
+TRANSCRIPTION_COMPLETED = "completed"
+TRANSCRIPTION_FAILED = "failed"
+WHISPER_MODEL_NAME = os.environ.get("WHISPER_MODEL", "base")
+TRANSCRIBE_EXISTING_ON_STARTUP = (
+    os.environ.get("TRANSCRIBE_EXISTING_ON_STARTUP", "true").lower() != "false"
+)
+transcription_executor = ThreadPoolExecutor(max_workers=1)
+whisper_model = None
+whisper_model_lock = threading.Lock()
 
 
 # Database model
@@ -38,6 +51,11 @@ class Note(db.Model):
     end_time = db.Column(db.String(8), nullable=True)
     subject = db.Column(db.String(100), nullable=True)
     recording_path = db.Column(db.String(200), nullable=True)
+    transcription = db.Column(db.Text, nullable=True)
+    transcription_status = db.Column(
+        db.String(20), nullable=False, default=TRANSCRIPTION_PENDING
+    )
+    transcription_error = db.Column(db.Text, nullable=True)
 
 
 def init_database():
@@ -54,6 +72,9 @@ def init_database():
         "end_time": "VARCHAR(8)",
         "subject": "VARCHAR(100)",
         "recording_path": "VARCHAR(200)",
+        "transcription": "TEXT",
+        "transcription_status": f"VARCHAR(20) NOT NULL DEFAULT '{TRANSCRIPTION_PENDING}'",
+        "transcription_error": "TEXT",
     }
 
     with db.engine.begin() as connection:
@@ -70,11 +91,104 @@ def init_database():
 @app.route("/")
 def index():
     notes = Note.query.order_by(Note.id.desc()).all()
-    return render_template("index.html", notes=notes)
+    has_active_transcription = any(
+        note.transcription_status in {TRANSCRIPTION_PENDING, TRANSCRIPTION_PROCESSING}
+        for note in notes
+    )
+    return render_template(
+        "index.html",
+        notes=notes,
+        has_active_transcription=has_active_transcription,
+    )
 
 
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def get_whisper_model():
+    global whisper_model
+    if whisper_model is None:
+        with whisper_model_lock:
+            if whisper_model is None:
+                import whisper
+
+                whisper_model = whisper.load_model(WHISPER_MODEL_NAME)
+    return whisper_model
+
+
+def update_transcription_status(note_id, status, transcription=None, error=None):
+    note = db.session.get(Note, note_id)
+    if not note:
+        return None
+
+    note.transcription_status = status
+    if transcription is not None:
+        note.transcription = transcription
+    note.transcription_error = error
+    db.session.commit()
+    return note
+
+
+HINDI_SUBJECT = "Hindi"
+HINDI_INITIAL_PROMPT = (
+    "यह एक हिंदी कक्षा की रिकॉर्डिंग है। बातचीत मुख्यतः हिंदी में है, "
+    "लेकिन बीच-बीच में अंग्रेजी शब्द और वाक्य भी बोले जाते हैं, "
+    "जिन्हें अंग्रेजी में ही लिखा जाना चाहिए।"
+)
+
+
+def transcribe_note(note_id, audio_path):
+    with app.app_context():
+        try:
+            note = update_transcription_status(note_id, TRANSCRIPTION_PROCESSING)
+            if not note:
+                return
+
+            transcribe_kwargs = {"fp16": False}
+            if note.subject == HINDI_SUBJECT:
+                transcribe_kwargs["language"] = "hi"
+                transcribe_kwargs["initial_prompt"] = HINDI_INITIAL_PROMPT
+
+            result = get_whisper_model().transcribe(audio_path, **transcribe_kwargs)
+            transcription = (result.get("text") or "").strip()
+            update_transcription_status(
+                note_id,
+                TRANSCRIPTION_COMPLETED,
+                transcription=transcription,
+                error=None,
+            )
+        except Exception as exc:
+            db.session.rollback()
+            error_message = str(exc).strip() or exc.__class__.__name__
+            update_transcription_status(
+                note_id,
+                TRANSCRIPTION_FAILED,
+                error=error_message[:1000],
+            )
+
+
+def enqueue_transcription(note_id, audio_path):
+    transcription_executor.submit(transcribe_note, note_id, audio_path)
+
+
+def enqueue_existing_transcriptions():
+    notes = Note.query.filter(
+        Note.transcription_status.in_(
+            [TRANSCRIPTION_PENDING, TRANSCRIPTION_PROCESSING]
+        ),
+        Note.recording_path.isnot(None),
+    ).all()
+
+    for note in notes:
+        audio_path = os.path.join(BASE_DIR, note.recording_path)
+        if os.path.exists(audio_path):
+            enqueue_transcription(note.id, audio_path)
+        else:
+            note.transcription_status = TRANSCRIPTION_FAILED
+            note.transcription_error = "Audio file not found."
+
+    db.session.commit()
 
 
 def save_audio_file(file_storage, subject, start_time=None, end_time=None):
@@ -97,9 +211,11 @@ def save_audio_file(file_storage, subject, start_time=None, end_time=None):
         end_time=end_time,
         subject=subject,
         recording_path=relative_path,
+        transcription_status=TRANSCRIPTION_PENDING,
     )
     db.session.add(new_note)
     db.session.commit()
+    enqueue_transcription(new_note.id, file_path)
     return new_note
 
 
@@ -150,6 +266,8 @@ def delete_note(note_id):
 
 with app.app_context():
     init_database()
+    if TRANSCRIBE_EXISTING_ON_STARTUP:
+        enqueue_existing_transcriptions()
 
 
 if __name__ == "__main__":

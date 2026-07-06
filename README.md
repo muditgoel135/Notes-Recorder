@@ -6,7 +6,7 @@ A small Flask app for recording class notes from the browser microphone, saving 
 
 - Record audio directly in the browser.
 - Choose a subject before recording.
-- Auto-stop after a chosen duration, or stop manually.
+- Start and stop recordings manually.
 - Save recordings to the local `recordings/` folder.
 - Store recording metadata in SQLite.
 - Upload existing audio files.
@@ -68,11 +68,10 @@ http://127.0.0.1:5000/
 ## Usage
 
 1. Select a subject.
-2. Enter a recording duration in seconds.
-3. Click **Start Recording**.
-4. Allow microphone permission in the browser.
-5. Click **Stop Recording**, or wait for the duration to finish.
-6. The recording is saved and appears in the recordings list.
+2. Click **Start Recording**.
+3. Allow microphone permission in the browser.
+4. Click **Stop Recording** when you are done.
+5. The recording is saved and appears in the recordings list.
 
 You can also upload existing `.wav`, `.mp3`, `.ogg`, `.webm`, `.m4a`, or `.mp4` audio files.
 

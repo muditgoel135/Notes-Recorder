@@ -43,10 +43,6 @@
                         <input type="radio" name="subject" value="Hindi" required> Hindi
                     </label>
                 </div>
-                <div class="mt-2">
-                    <label for="record_duration">Recording Duration (seconds):</label>
-                    <input type="number" name="record_duration" id="record_duration" min="1" required>
-                </div><br>
                 <button type="submit" id="start-button" class="btn btn-primary">Start Recording</button>
             </form>
 
@@ -80,6 +76,21 @@
                         </audio>
                         {% endif %}
                     </div>
+                    <div class="mt-3">
+                        {% if note.transcription_status == "completed" %}
+                        <div class="small text-muted mb-1">Transcription</div>
+                        <p class="mb-0">{{ note.transcription or "No speech detected." }}</p>
+                        {% elif note.transcription_status == "processing" %}
+                        <div class="small text-muted">Transcribing...</div>
+                        {% elif note.transcription_status == "failed" %}
+                        <div class="small text-danger">
+                            Transcription failed{% if note.transcription_error %}: {{ note.transcription_error }}{%
+                            endif %}
+                        </div>
+                        {% else %}
+                        <div class="small text-muted">Transcription pending...</div>
+                        {% endif %}
+                    </div>
                 </div>
                 {% endfor %}
             </div>
@@ -97,7 +108,6 @@
 
         let mediaRecorder;
         let audioChunks = [];
-        let recordingTimer;
         let recordingStartTime;
 
         function setStatus(message, isError = false) {
@@ -181,7 +191,6 @@
                 });
 
                 mediaRecorder.addEventListener("stop", async () => {
-                    clearTimeout(recordingTimer);
                     startButton.disabled = false;
                     stopButton.disabled = true;
                     stream.getTracks().forEach((track) => track.stop());
@@ -200,13 +209,6 @@
                 startButton.disabled = true;
                 stopButton.disabled = false;
                 setStatus("Recording...");
-
-                const duration = Number(document.getElementById("record_duration").value);
-                recordingTimer = setTimeout(() => {
-                    if (mediaRecorder && mediaRecorder.state === "recording") {
-                        mediaRecorder.stop();
-                    }
-                }, duration * 1000);
             } catch (error) {
                 startButton.disabled = false;
                 stopButton.disabled = true;
@@ -220,5 +222,10 @@
                 mediaRecorder.stop();
             }
         });
+
+        const hasActiveTranscription = {{ has_active_transcription | tojson }};
+        if (hasActiveTranscription) {
+            setTimeout(() => window.location.reload(), 10000);
+        }
     </script>
 </body>
