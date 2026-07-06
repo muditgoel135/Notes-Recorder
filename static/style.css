@@ -1,0 +1,34 @@
+.note-text {
+    white-space: pre-wrap;
+}
+
+.markdown-content {
+    margin-bottom: 0;
+}
+
+.markdown-content > *:last-child {
+    margin-bottom: 0;
+}
+
+.markdown-content ul {
+    padding-left: 1.25rem;
+}
+
+.markdown-content ul ul {
+    margin-top: 0.15rem;
+}
+
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-top: 0.75rem;
+    margin-bottom: 0.25rem;
+}
+
+.markdown-content h1:first-child,
+.markdown-content h2:first-child,
+.markdown-content h3:first-child {
+    margin-top: 0;
+}

@@ -219,6 +219,7 @@ __marimo__/
 
 # AI agents and tools
 .agents/
+.claude/
 
 # Output of the recorder tool
 recordings/

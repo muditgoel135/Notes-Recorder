@@ -10,11 +10,19 @@ from flask import (
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import inspect, text
 import os
+import json
 import datetime
 import uuid
 import threading
+import requests
+import markdown
+from markupsafe import Markup
 from concurrent.futures import ThreadPoolExecutor
 from werkzeug.utils import secure_filename
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 # Flask settings
 app = Flask(__name__)
@@ -22,6 +30,13 @@ app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///database.db"
 db = SQLAlchemy(app)
 secret_key = os.environ.get("SECRET_KEY", "default_secret_key")
 app.config["SECRET_KEY"] = secret_key
+
+
+@app.template_filter("markdown")
+def render_markdown(text):
+    if not text:
+        return ""
+    return Markup(markdown.markdown(text, extensions=["sane_lists"]))
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -37,6 +52,14 @@ WHISPER_MODEL_NAME = os.environ.get("WHISPER_MODEL", "base")
 TRANSCRIBE_EXISTING_ON_STARTUP = (
     os.environ.get("TRANSCRIBE_EXISTING_ON_STARTUP", "true").lower() != "false"
 )
+
+KEY_POINTS_PENDING = "pending"
+KEY_POINTS_PROCESSING = "processing"
+KEY_POINTS_COMPLETED = "completed"
+KEY_POINTS_FAILED = "failed"
+OLLAMA_API_KEY = os.environ.get("OLLAMA_API_KEY", "")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gpt-oss:20b")
+OLLAMA_CHAT_URL = "https://ollama.com/api/chat"
 transcription_executor = ThreadPoolExecutor(max_workers=1)
 whisper_model = None
 whisper_model_lock = threading.Lock()
@@ -56,6 +79,12 @@ class Note(db.Model):
         db.String(20), nullable=False, default=TRANSCRIPTION_PENDING
     )
     transcription_error = db.Column(db.Text, nullable=True)
+    title = db.Column(db.String(200), nullable=True)
+    key_points = db.Column(db.Text, nullable=True)
+    key_points_status = db.Column(
+        db.String(20), nullable=False, default=KEY_POINTS_PENDING
+    )
+    key_points_error = db.Column(db.Text, nullable=True)
 
 
 def init_database():
@@ -75,6 +104,10 @@ def init_database():
         "transcription": "TEXT",
         "transcription_status": f"VARCHAR(20) NOT NULL DEFAULT '{TRANSCRIPTION_PENDING}'",
         "transcription_error": "TEXT",
+        "title": "VARCHAR(200)",
+        "key_points": "TEXT",
+        "key_points_status": f"VARCHAR(20) NOT NULL DEFAULT '{KEY_POINTS_PENDING}'",
+        "key_points_error": "TEXT",
     }
 
     with db.engine.begin() as connection:
@@ -93,6 +126,7 @@ def index():
     notes = Note.query.order_by(Note.id.desc()).all()
     has_active_transcription = any(
         note.transcription_status in {TRANSCRIPTION_PENDING, TRANSCRIPTION_PROCESSING}
+        or note.key_points_status in {KEY_POINTS_PENDING, KEY_POINTS_PROCESSING}
         for note in notes
     )
     return render_template(
@@ -130,6 +164,23 @@ def update_transcription_status(note_id, status, transcription=None, error=None)
     return note
 
 
+def update_key_points_status(
+    note_id, status, title=None, key_points=None, error=None
+):
+    note = db.session.get(Note, note_id)
+    if not note:
+        return None
+
+    note.key_points_status = status
+    if title is not None:
+        note.title = title
+    if key_points is not None:
+        note.key_points = key_points
+    note.key_points_error = error
+    db.session.commit()
+    return note
+
+
 HINDI_SUBJECT = "Hindi"
 HINDI_INITIAL_PROMPT = (
     "यह एक हिंदी कक्षा की रिकॉर्डिंग है। बातचीत मुख्यतः हिंदी में है, "
@@ -158,6 +209,7 @@ def transcribe_note(note_id, audio_path):
                 transcription=transcription,
                 error=None,
             )
+
         except Exception as exc:
             db.session.rollback()
             error_message = str(exc).strip() or exc.__class__.__name__
@@ -165,6 +217,88 @@ def transcribe_note(note_id, audio_path):
                 note_id,
                 TRANSCRIPTION_FAILED,
                 error=error_message[:1000],
+            )
+            return
+
+        extract_key_points(note_id, transcription)
+
+
+def extract_key_points(note_id, transcript):
+    with app.app_context():
+        if not transcript:
+            update_key_points_status(
+                note_id, KEY_POINTS_FAILED, error="No transcript to summarize."
+            )
+            return
+
+        if not OLLAMA_API_KEY:
+            update_key_points_status(
+                note_id,
+                KEY_POINTS_FAILED,
+                error="OLLAMA_API_KEY is not configured.",
+            )
+            return
+
+        try:
+            update_key_points_status(note_id, KEY_POINTS_PROCESSING)
+            response = requests.post(
+                OLLAMA_CHAT_URL,
+                headers={"Authorization": f"Bearer {OLLAMA_API_KEY}"},
+                json={
+                    "model": OLLAMA_MODEL,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": (
+                                "You are given a class recording transcript. Respond "
+                                "with ONLY a JSON object of the form "
+                                '{"title": "short descriptive title (max 8 words)", '
+                                '"key_points": "markdown notes summarizing the '
+                                'transcript"}. In key_points, use \'## \' headings '
+                                "to group related points into sections when the "
+                                "transcript covers multiple topics, and '-' for "
+                                "bullets under each heading. Nested bullets must be "
+                                "indented by exactly 4 spaces per level (required "
+                                "for the list to render as nested). Bold with "
+                                "**text** where useful. No preamble or closing "
+                                f"remarks.\n\nTranscript:\n{transcript}"
+                            ),
+                        }
+                    ],
+                    "format": "json",
+                    "stream": False,
+                },
+                timeout=120,
+            )
+
+            response.raise_for_status()
+            content = (
+                response.json().get("message", {}).get("content", "") or ""
+            ).strip()
+
+            if not content:
+                raise ValueError("Ollama returned an empty response.")
+
+            parsed = json.loads(content)
+            title = (parsed.get("title") or "").strip()
+            key_points = (parsed.get("key_points") or "").strip()
+
+            if not key_points:
+                raise ValueError("Ollama returned no key points.")
+
+            update_key_points_status(
+                note_id,
+                KEY_POINTS_COMPLETED,
+                title=title[:200] or None,
+                key_points=key_points,
+                error=None,
+            )
+
+        except Exception as exc:
+            db.session.rollback()
+            error_message = str(exc).strip() or exc.__class__.__name__
+            update_key_points_status(
+                note_id, KEY_POINTS_FAILED, error=error_message[:1000]
             )
 
 
@@ -189,6 +323,16 @@ def enqueue_existing_transcriptions():
             note.transcription_error = "Audio file not found."
 
     db.session.commit()
+
+
+def enqueue_existing_key_points():
+    notes = Note.query.filter(
+        Note.transcription_status == TRANSCRIPTION_COMPLETED,
+        Note.key_points_status.in_([KEY_POINTS_PENDING, KEY_POINTS_PROCESSING]),
+    ).all()
+
+    for note in notes:
+        transcription_executor.submit(extract_key_points, note.id, note.transcription)
 
 
 def save_audio_file(file_storage, subject, start_time=None, end_time=None):
@@ -228,6 +372,7 @@ def save_recording():
 
     if not audio_file or audio_file.filename == "":
         return jsonify({"error": "No audio file received."}), 400
+
     if not allowed_file(audio_file.filename):
         return jsonify({"error": "Unsupported audio file type."}), 400
 
@@ -240,6 +385,7 @@ def upload():
     uploaded_file = request.files.get("file")
     if not uploaded_file or uploaded_file.filename == "":
         return redirect(url_for("index"))
+
     if not allowed_file(uploaded_file.filename):
         return redirect(url_for("index"))
 
@@ -259,6 +405,7 @@ def delete_note(note_id):
         recording_file_path = os.path.join(BASE_DIR, note.recording_path)
         if os.path.exists(recording_file_path):
             os.remove(recording_file_path)
+
     db.session.delete(note)
     db.session.commit()
     return redirect(url_for("index"))
@@ -268,6 +415,7 @@ with app.app_context():
     init_database()
     if TRANSCRIBE_EXISTING_ON_STARTUP:
         enqueue_existing_transcriptions()
+        enqueue_existing_key_points()
 
 
 if __name__ == "__main__":

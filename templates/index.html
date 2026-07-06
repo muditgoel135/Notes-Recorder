@@ -16,7 +16,7 @@
         <h1 class="text-center mb-4">Notes Recorder</h1>
         <div class="text-center mb-4">
             <form id="upload-form" action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
-                <label for="file" class="form-label">Upload an audio file:
+                <label for="file" class="form-label">Upload an audio file: &nbsp;
                     <input type="file" name="file" accept=".wav,.mp3,.ogg,.webm,.m4a,.mp4" required>
                 </label>
                 <button type="submit" class="btn btn-success">Upload</button>
@@ -25,32 +25,45 @@
             <form id="start-recording-form" class="mt-3">
                 <div>
                     <label>
-                        <input type="radio" name="subject" value="Math" required> Math
+                        <input type="radio" name="subject" value="Math" required>
+                        Math &nbsp; &nbsp;
                     </label>
                     <label>
-                        <input type="radio" name="subject" value="Physics" required> Physics
+                        <input type="radio" name="subject" value="Physics" required>
+                        Physics &nbsp; &nbsp;
                     </label>
                     <label>
-                        <input type="radio" name="subject" value="Chemistry" required> Chemistry
+                        <input type="radio" name="subject" value="Chemistry" required>
+                        Chemistry &nbsp; &nbsp;
                     </label>
                     <label>
-                        <input type="radio" name="subject" value="Biology" required> Biology
+                        <input type="radio" name="subject" value="Biology" required>
+                        Biology &nbsp; &nbsp;
                     </label>
                     <label>
-                        <input type="radio" name="subject" value="English" required> English
+                        <input type="radio" name="subject" value="English" required>
+                        English &nbsp; &nbsp;
                     </label>
                     <label>
-                        <input type="radio" name="subject" value="Hindi" required> Hindi
+                        <input type="radio" name="subject" value="Hindi" required>
+                        Hindi &nbsp; &nbsp;
                     </label>
-                </div>
+                    <label>
+                        <input type="radio" name="subject" value="Individuals and Societies" required>
+                        Individuals and Societies &nbsp; &nbsp;
+                    </label>
+                </div><br>
                 <button type="submit" id="start-button" class="btn btn-primary">Start Recording</button>
             </form>
 
             <form id="stop-recording-form" class="mt-3">
-                <button type="submit" id="stop-button" class="btn btn-danger" disabled>Stop Recording</button>
+                <button type="submit" id="stop-button" class="btn btn-danger" disabled>
+                    Stop Recording
+                </button>
             </form>
             <div id="recording-status" class="mt-3"></div>
         </div>
+
         <div id="recordings-list" class="mt-4">
             {% if notes %}
             <h2 class="h4">Recordings</h2>
@@ -76,10 +89,38 @@
                         </audio>
                         {% endif %}
                     </div>
+
                     <div class="mt-3">
                         {% if note.transcription_status == "completed" %}
-                        <div class="small text-muted mb-1">Transcription</div>
-                        <p class="mb-0">{{ note.transcription or "No speech detected." }}</p>
+                        {% if note.key_points_status == "completed" and note.title %}
+                        <div class="fw-semibold mb-2">{{ note.title }}</div>
+                        {% endif %}
+                        {% if note.key_points_status == "completed" and note.key_points %}
+                        <div class="small text-muted mb-1">Key Points</div>
+                        <div class="mb-0 markdown-content">{{ note.key_points | markdown }}</div>
+                        {% elif note.key_points_status in ("pending", "processing") %}
+                        <div class="small text-muted mb-2">Extracting key points...</div>
+                        <p class="mb-0 note-text">{{ note.transcription or "No speech detected." }}</p>
+                        {% elif note.key_points_status == "failed" %}
+                        <div class="small text-danger mb-1">
+                            Key point extraction failed{% if note.key_points_error %}: {{ note.key_points_error }}
+                            {% endif %}
+                        </div>
+                        <p class="mb-0 note-text">{{ note.transcription or "No speech detected." }}</p>
+                        {% else %}
+                        <p class="mb-0 note-text">{{ note.transcription or "No speech detected." }}</p>
+                        {% endif %}
+
+                        {% if note.key_points_status == "completed" and note.key_points %}
+                        <button class="btn btn-link btn-sm ps-0 mt-1" type="button" data-bs-toggle="collapse"
+                            data-bs-target="#transcript-{{ note.id }}">
+                            Show full transcript
+                        </button>
+                        <div class="collapse" id="transcript-{{ note.id }}">
+                            <div class="small text-muted mb-1">Full Transcript</div>
+                            <p class="mb-0 note-text">{{ note.transcription or "No speech detected." }}</p>
+                        </div>
+                        {% endif %}
                         {% elif note.transcription_status == "processing" %}
                         <div class="small text-muted">Transcribing...</div>
                         {% elif note.transcription_status == "failed" %}
@@ -96,7 +137,7 @@
             </div>
             {% endif %}
         </div>
-    </div>
+    </div><br>
 
     <script src="{{ url_for('static', filename='bootstrap-js/bootstrap.bundle.min.js') }}"></script>
     <script>
