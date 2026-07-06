@@ -12,6 +12,7 @@ from sqlalchemy import inspect, text
 import os
 import json
 import datetime
+import socket
 import uuid
 import threading
 import requests
@@ -61,6 +62,7 @@ KEY_POINTS_FAILED = "failed"
 OLLAMA_API_KEY = os.environ.get("OLLAMA_API_KEY", "")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gpt-oss:20b")
 OLLAMA_CHAT_URL = "https://ollama.com/api/chat"
+KEY_POINTS_RETRY_SECONDS = int(os.environ.get("KEY_POINTS_RETRY_SECONDS", "30"))
 transcription_executor = ThreadPoolExecutor(max_workers=1)
 whisper_model = None
 whisper_model_lock = threading.Lock()
@@ -144,7 +146,7 @@ def build_notes_query(
 
     if date_from:
         query = query.filter(Note.date >= date_from)
-    
+
     if date_to:
         query = query.filter(Note.date <= date_to)
 
@@ -152,7 +154,7 @@ def build_notes_query(
         query = query.filter(
             Note.start_time >= (time_from + ":00" if len(time_from) == 5 else time_from)
         )
-    
+
     if time_to:
         query = query.filter(
             Note.start_time <= (time_to + ":59" if len(time_to) == 5 else time_to)
@@ -255,6 +257,14 @@ def api_notes():
     )
 
 
+def is_internet_available(host="8.8.8.8", port=53, timeout=3):
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
@@ -267,7 +277,7 @@ def get_whisper_model():
                 import whisper
 
                 whisper_model = whisper.load_model(WHISPER_MODEL_NAME)
-    
+
     return whisper_model
 
 
@@ -279,7 +289,7 @@ def update_transcription_status(note_id, status, transcription=None, error=None)
     note.transcription_status = status
     if transcription is not None:
         note.transcription = transcription
-    
+
     note.transcription_error = error
     db.session.commit()
     return note
@@ -293,10 +303,10 @@ def update_key_points_status(note_id, status, title=None, key_points=None, error
     note.key_points_status = status
     if title is not None:
         note.title = title
-    
+
     if key_points is not None:
         note.key_points = key_points
-    
+
     note.key_points_error = error
     db.session.commit()
     return note
@@ -358,6 +368,20 @@ def extract_key_points(note_id, transcript):
                 KEY_POINTS_FAILED,
                 error="OLLAMA_API_KEY is not configured.",
             )
+            return
+
+        if not is_internet_available():
+            update_key_points_status(
+                note_id,
+                KEY_POINTS_PENDING,
+                error="Waiting for an internet connection to reach Ollama.",
+            )
+            threading.Timer(
+                KEY_POINTS_RETRY_SECONDS,
+                lambda: transcription_executor.submit(
+                    extract_key_points, note_id, transcript
+                ),
+            ).start()
             return
 
         try:
@@ -478,7 +502,7 @@ def save_audio_file(file_storage, subject, start_time=None, end_time=None):
         recording_path=relative_path,
         transcription_status=TRANSCRIPTION_PENDING,
     )
-    
+
     db.session.add(new_note)
     db.session.commit()
     enqueue_transcription(new_note.id, file_path)

@@ -10,8 +10,8 @@ A small Flask app for recording class notes from the browser microphone, transcr
 - Save recordings to the local `recordings/` folder.
 - Upload existing audio files.
 - Play saved recordings from the app.
-- Automatic background transcription using OpenAI Whisper.
-- Automatic title and key-points extraction from the transcript using Ollama.
+- Automatic background transcription using OpenAI Whisper (runs fully offline, once the model is downloaded).
+- Automatic title and key-points extraction from the transcript using Ollama's hosted API (requires internet; waits and retries automatically if offline).
 - Inline editing of note title and key points.
 - Search and filter notes by text, date range, and time range.
 - Paginated notes list.
@@ -64,6 +64,7 @@ Optional environment variables (e.g. in a `.env` file):
 - `SECRET_KEY` — Flask session secret.
 - `WHISPER_MODEL` — Whisper model size to load (default `base`).
 - `OLLAMA_API_KEY` — API key for Ollama's hosted chat API. Required for title/key-points extraction; without it, key-points extraction fails for each note but transcription still works.
+- `KEY_POINTS_RETRY_SECONDS` — how often (in seconds) to retry key-points extraction while there is no internet connection (default `30`).
 - `OLLAMA_MODEL` — Ollama model used for key-points extraction (default `gpt-oss:20b`).
 - `TRANSCRIBE_EXISTING_ON_STARTUP` — set to `false` to skip re-queuing any pending transcriptions/key-points on startup (default `true`).
 
@@ -101,3 +102,4 @@ Use the search box and date/time filters above the notes list to find recordings
 - The app creates or updates its SQLite tables on startup.
 - Transcription and key-points extraction run one at a time in a background worker; large backlogs process sequentially.
 - The first transcription run downloads the selected Whisper model, which can take a while depending on model size and network speed.
+- The app can be used fully offline for recording and transcription. Key-points extraction needs internet access to reach Ollama; while offline it shows as "Extracting key points..." and retries automatically until a connection is available.
