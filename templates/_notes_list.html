@@ -17,7 +17,8 @@
             </div>
 
             {% if note.recording_path %}
-            <audio controls src="{{ url_for('recording_file', filename=note.recording_path.split('/')[-1]) }}">
+            <audio controls id="audio-{{ note.id }}" data-note-id="{{ note.id }}"
+                src="{{ url_for('recording_file', filename=note.recording_path.split('/')[-1]) }}">
             </audio>
             {% endif %}
         </div>
@@ -67,15 +68,15 @@
             </div>
             {% elif note.key_points_status in ("pending", "processing") %}
             <div class="small text-muted mb-2">Extracting key points...</div>
-            <p class="mb-0 note-text">{{ note.transcription or "No speech detected." }}</p>
+            {% include "_transcript.html" %}
             {% elif note.key_points_status == "failed" %}
             <div class="small text-danger mb-1">
                 Key point extraction failed{% if note.key_points_error %}: {{ note.key_points_error }}
                 {% endif %}
             </div>
-            <p class="mb-0 note-text">{{ note.transcription or "No speech detected." }}</p>
+            {% include "_transcript.html" %}
             {% else %}
-            <p class="mb-0 note-text">{{ note.transcription or "No speech detected." }}</p>
+            {% include "_transcript.html" %}
             {% endif %}
 
             {% if note.key_points_status == "completed" and note.key_points %}
@@ -85,7 +86,7 @@
             </button>
             <div class="collapse" id="transcript-{{ note.id }}">
                 <div class="small text-muted mb-1">Full Transcript</div>
-                <p class="mb-0 note-text">{{ note.transcription or "No speech detected." }}</p>
+                {% include "_transcript.html" %}
             </div>
             {% endif %}
             {% elif note.transcription_status == "processing" %}

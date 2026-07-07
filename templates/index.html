@@ -93,6 +93,11 @@
             </div>
         </div>
 
+        <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" id="sync-toggle" checked>
+            <label class="form-check-label small" for="sync-toggle">Sync transcript with audio playback</label>
+        </div>
+
         <div id="recordings-list" class="mt-4">
             {% include "_notes_list.html" %}
         </div>
@@ -228,9 +233,23 @@
             const cancelButton = event.target.closest(".cancel-note-btn");
             const saveButton = event.target.closest(".save-note-btn");
             const pageButton = event.target.closest("#prev-page-btn, #next-page-btn");
+            const wordSpan = event.target.closest(".transcript-word");
 
             if (pageButton && !pageButton.disabled) {
                 fetchAndRenderNotes(Number(pageButton.dataset.page));
+                return;
+            }
+
+            if (wordSpan) {
+                if (!isSyncEnabled()) {
+                    return;
+                }
+                const noteId = wordSpan.closest(".transcript-words").dataset.noteId;
+                const audio = document.getElementById(`audio-${noteId}`);
+                if (audio) {
+                    audio.currentTime = Number(wordSpan.dataset.start);
+                    audio.play();
+                }
                 return;
             }
 
@@ -279,6 +298,81 @@
             }
         });
 
+        const syncToggle = document.getElementById("sync-toggle");
+
+        function isSyncEnabled() {
+            return localStorage.getItem("syncTranscriptEnabled") !== "false";
+        }
+
+        function applySyncEnabled(enabled) {
+            document.body.classList.toggle("sync-enabled", enabled);
+        }
+
+        syncToggle.checked = isSyncEnabled();
+        applySyncEnabled(syncToggle.checked);
+
+        syncToggle.addEventListener("change", () => {
+            localStorage.setItem("syncTranscriptEnabled", String(syncToggle.checked));
+            applySyncEnabled(syncToggle.checked);
+        });
+
+        function highlightActiveWord(audio) {
+            const noteId = audio.dataset.noteId;
+            const container = document.querySelector(`.transcript-words[data-note-id="${noteId}"]`);
+            if (!container) {
+                return;
+            }
+            const words = container.querySelectorAll(".transcript-word");
+            let activeWord = null;
+            for (const word of words) {
+                if (Number(word.dataset.start) <= audio.currentTime) {
+                    activeWord = word;
+                } else {
+                    break;
+                }
+            }
+            const currentlyActive = container.querySelector(".transcript-word.active-word");
+            if (currentlyActive && currentlyActive !== activeWord) {
+                currentlyActive.classList.remove("active-word");
+            }
+            if (activeWord) {
+                activeWord.classList.add("active-word");
+            }
+        }
+
+        function bindAudioSync() {
+            document.querySelectorAll("audio[data-note-id]").forEach((audio) => {
+                audio.addEventListener("timeupdate", () => {
+                    if (isSyncEnabled()) {
+                        highlightActiveWord(audio);
+                    }
+                });
+            });
+        }
+
+        function snapshotPlayback() {
+            const snapshots = [];
+            document.querySelectorAll("audio[data-note-id]").forEach((audio) => {
+                if (!audio.paused) {
+                    snapshots.push({
+                        noteId: audio.dataset.noteId,
+                        currentTime: audio.currentTime,
+                    });
+                }
+            });
+            return snapshots;
+        }
+
+        function restorePlayback(snapshots) {
+            snapshots.forEach(({ noteId, currentTime }) => {
+                const audio = document.getElementById(`audio-${noteId}`);
+                if (audio) {
+                    audio.currentTime = currentTime;
+                    audio.play();
+                }
+            });
+        }
+
         let currentPage = 1;
         let pollTimer = null;
 
@@ -318,7 +412,10 @@
             }
             const data = await response.json();
             currentPage = data.page;
+            const playbackSnapshots = snapshotPlayback();
             document.getElementById("recordings-list").innerHTML = data.html;
+            bindAudioSync();
+            restorePlayback(playbackSnapshots);
             schedulePolling(data.has_active_transcription);
         }
 
@@ -346,6 +443,7 @@
             fetchAndRenderNotes(1);
         });
 
+        bindAudioSync();
         schedulePolling({{ has_active_transcription | tojson }});
     </script>
 </body>

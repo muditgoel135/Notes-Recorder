@@ -2,6 +2,18 @@
     white-space: pre-wrap;
 }
 
+.transcript-word.active-word {
+    background-color: #fff3a0;
+}
+
+body.sync-enabled .transcript-word {
+    cursor: pointer;
+}
+
+body.sync-enabled .transcript-word:hover {
+    text-decoration: underline;
+}
+
 .markdown-content {
     margin-bottom: 0;
 }

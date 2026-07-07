@@ -11,6 +11,7 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import inspect, text
 import os
 import json
+import re
 import datetime
 import socket
 import uuid
@@ -33,11 +34,62 @@ secret_key = os.environ.get("SECRET_KEY", "default_secret_key")
 app.config["SECRET_KEY"] = secret_key
 
 
+LIST_ITEM_RE = re.compile(r"^([ \t]*)([-*+]|\d+\.)\s+")
+
+
+def normalize_list_indentation(text):
+    """Clamp list-item indentation to what's reachable via preceding items.
+
+    LLM-generated markdown sometimes indents top-level bullets by 4 spaces
+    with no parent list item above them, which Python-Markdown parses as an
+    indented code block instead of a list. This flattens such runaway
+    indentation while still allowing genuine nested lists.
+    """
+    stack = []  # (raw_indent, normalized_indent) per open list level
+    lines = []
+    for line in text.split("\n"):
+        match = LIST_ITEM_RE.match(line)
+        if match:
+            raw_indent = len(match.group(1).expandtabs())
+            while stack and stack[-1][0] > raw_indent:
+                stack.pop()
+
+            if stack and stack[-1][0] == raw_indent:
+                indent = stack[-1][1]
+            elif stack:
+                indent = stack[-1][1] + 4
+            else:
+                indent = 0
+
+            stack.append((raw_indent, indent))
+            lines.append(" " * indent + line[match.end(1) :])
+        elif line.strip():
+            lines.append(line)
+            stack = []
+        else:
+            lines.append(line)
+    return "\n".join(lines)
+
+
 @app.template_filter("markdown")
 def render_markdown(text):
     if not text:
         return ""
-    return Markup(markdown.markdown(text, extensions=["sane_lists"]))
+    return Markup(
+        markdown.markdown(
+            normalize_list_indentation(text), extensions=["sane_lists"]
+        )
+    )
+
+
+@app.template_filter("from_json")
+def parse_json(value):
+    if not value:
+        return []
+    try:
+        return json.loads(value)
+    except (TypeError, ValueError):
+        return []
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -78,6 +130,7 @@ class Note(db.Model):
     subject = db.Column(db.String(100), nullable=True)
     recording_path = db.Column(db.String(200), nullable=True)
     transcription = db.Column(db.Text, nullable=True)
+    transcription_segments = db.Column(db.Text, nullable=True)
     transcription_status = db.Column(
         db.String(20), nullable=False, default=TRANSCRIPTION_PENDING
     )
@@ -107,6 +160,7 @@ def init_database():
         "subject": "VARCHAR(100)",
         "recording_path": "VARCHAR(200)",
         "transcription": "TEXT",
+        "transcription_segments": "TEXT",
         "transcription_status": f"VARCHAR(20) NOT NULL DEFAULT '{TRANSCRIPTION_PENDING}'",
         "transcription_error": "TEXT",
         "title": "VARCHAR(200)",
@@ -281,7 +335,9 @@ def get_whisper_model():
     return whisper_model
 
 
-def update_transcription_status(note_id, status, transcription=None, error=None):
+def update_transcription_status(
+    note_id, status, transcription=None, segments=None, error=None
+):
     note = db.session.get(Note, note_id)
     if not note:
         return None
@@ -289,6 +345,9 @@ def update_transcription_status(note_id, status, transcription=None, error=None)
     note.transcription_status = status
     if transcription is not None:
         note.transcription = transcription
+
+    if segments is not None:
+        note.transcription_segments = segments
 
     note.transcription_error = error
     db.session.commit()
@@ -327,17 +386,24 @@ def transcribe_note(note_id, audio_path):
             if not note:
                 return
 
-            transcribe_kwargs = {"fp16": False}
+            transcribe_kwargs = {"fp16": False, "word_timestamps": True}
             if note.subject == HINDI_SUBJECT:
                 transcribe_kwargs["language"] = "hi"
                 transcribe_kwargs["initial_prompt"] = HINDI_INITIAL_PROMPT
 
             result = get_whisper_model().transcribe(audio_path, **transcribe_kwargs)
             transcription = (result.get("text") or "").strip()
+            words = [
+                {"s": word["start"], "w": word["word"]}
+                for segment in result.get("segments") or []
+                for word in segment.get("words") or []
+            ]
+            segments_json = json.dumps(words) if words else None
             update_transcription_status(
                 note_id,
                 TRANSCRIPTION_COMPLETED,
                 transcription=transcription,
+                segments=segments_json,
                 error=None,
             )
 

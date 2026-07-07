@@ -1,0 +1,8 @@
+{% set words = note.transcription_segments | from_json %}
+{% if words %}
+<p class="mb-0 note-text transcript-words" data-note-id="{{ note.id }}">{% for word in words -%}
+    <span class="transcript-word" data-start="{{ word.s }}">{{ word.w }}</span>{%- endfor %}
+</p>
+{% else %}
+<p class="mb-0 note-text">{{ note.transcription or "No speech detected." }}</p>
+{% endif %}
