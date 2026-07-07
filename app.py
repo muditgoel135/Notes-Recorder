@@ -6,6 +6,7 @@ from flask import (
     url_for,
     jsonify,
     send_from_directory,
+    Response,
 )
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import inspect, text
@@ -76,9 +77,7 @@ def render_markdown(text):
     if not text:
         return ""
     return Markup(
-        markdown.markdown(
-            normalize_list_indentation(text), extensions=["sane_lists"]
-        )
+        markdown.markdown(normalize_list_indentation(text), extensions=["sane_lists"])
     )
 
 
@@ -608,6 +607,41 @@ def upload():
 @app.route("/recordings/<path:filename>")
 def recording_file(filename):
     return send_from_directory(RECORDINGS_DIR, filename)
+
+
+def note_download_basename(note):
+    safe_subject = secure_filename(note.title or note.subject or "note") or "note"
+    return f"{note.date}_{safe_subject}"
+
+
+@app.route("/download_transcript/<int:note_id>")
+def download_transcript(note_id):
+    note = Note.query.get_or_404(note_id)
+    if not note.transcription:
+        return jsonify({"error": "No transcript available."}), 404
+
+    filename = f"{note_download_basename(note)}_transcript.txt"
+    return Response(
+        note.transcription,
+        mimetype="text/plain",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.route("/download_key_points/<int:note_id>")
+def download_key_points(note_id):
+    note = Note.query.get_or_404(note_id)
+    if not note.key_points:
+        return jsonify({"error": "No key points available."}), 404
+
+    heading = note.title or note.subject or "Key Points"
+    content = f"# {heading}\n\n{note.key_points}\n"
+    filename = f"{note_download_basename(note)}_key_points.md"
+    return Response(
+        content,
+        mimetype="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.route("/update_note/<int:note_id>", methods=["POST"])

@@ -13,6 +13,7 @@ A small Flask app for recording class notes from the browser microphone, transcr
 - Automatic background transcription using OpenAI Whisper (runs fully offline, once the model is downloaded).
 - Automatic title and key-points extraction from the transcript using Ollama's hosted API (requires internet; waits and retries automatically if offline).
 - Inline editing of note title and key points.
+- Download a note's transcript (`.txt`) or key points (`.md`).
 - Search and filter notes by text, date range, and time range.
 - Paginated notes list.
 - Store recording and note metadata in SQLite.
@@ -89,6 +90,7 @@ http://127.0.0.1:5000/
 5. The recording is saved and appears in the recordings list.
 6. Transcription and key-points extraction run in the background; the list updates automatically as they complete.
 7. Edit a note's title or key points inline if needed.
+8. Once transcription or key-points extraction complete, download them from the note's **Download transcript** / **Download key points** buttons.
 
 You can also upload existing `.wav`, `.mp3`, `.ogg`, `.webm`, `.m4a`, or `.mp4` audio files.
 
