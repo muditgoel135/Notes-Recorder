@@ -94,6 +94,8 @@
             <div class="small text-danger mb-1">
                 Key point extraction failed{% if note.key_points_error %}: {{ note.key_points_error }}
                 {% endif %}
+                <button class="btn btn-link btn-sm p-0 retry-key-points-btn" type="button"
+                    data-note-id="{{ note.id }}">Retry</button>
             </div>
             {% include "_transcript.html" %}
             {% else %}
@@ -123,6 +125,8 @@
             <div class="small text-danger">
                 Transcription failed{% if note.transcription_error %}: {{ note.transcription_error }}{%
                 endif %}
+                <button class="btn btn-link btn-sm p-0 retry-transcription-btn" type="button"
+                    data-note-id="{{ note.id }}">Retry</button>
             </div>
             {% else %}
             <div class="small text-muted">Transcription pending...</div>

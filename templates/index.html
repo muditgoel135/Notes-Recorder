@@ -304,6 +304,29 @@
             const editTagsButton = event.target.closest(".edit-tags-btn");
             const pageButton = event.target.closest("#prev-page-btn, #next-page-btn");
             const wordSpan = event.target.closest(".transcript-word");
+            const retryTranscriptionButton = event.target.closest(".retry-transcription-btn");
+            const retryKeyPointsButton = event.target.closest(".retry-key-points-btn");
+
+            if (retryTranscriptionButton || retryKeyPointsButton) {
+                const button = retryTranscriptionButton || retryKeyPointsButton;
+                const noteId = button.dataset.noteId;
+                const url = retryTranscriptionButton
+                    ? `/notes/${noteId}/retry_transcription`
+                    : `/notes/${noteId}/retry_key_points`;
+                button.disabled = true;
+                try {
+                    const response = await fetch(url, { method: "POST" });
+                    if (!response.ok) {
+                        const data = await response.json().catch(() => ({}));
+                        throw new Error(data.error || "Retry failed.");
+                    }
+                    fetchAndRenderNotes(currentPage);
+                } catch (error) {
+                    button.disabled = false;
+                    alert(error.message);
+                }
+                return;
+            }
 
             if (editTagsButton) {
                 activeNoteTagsId = editTagsButton.dataset.noteId;

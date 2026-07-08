@@ -220,9 +220,6 @@ def init_database():
                 )
 
 
-DEFAULT_PER_PAGE = 10
-
-
 def build_notes_query(
     search=None,
     date_from=None,
@@ -769,6 +766,36 @@ def set_note_tags(note_id):
     note.tags = Tag.query.filter(Tag.id.in_(tag_ids)).all() if tag_ids else []
     db.session.commit()
     return jsonify({"tags": [tag.to_dict() for tag in note.tags]})
+
+
+@app.route("/notes/<int:note_id>/retry_transcription", methods=["POST"])
+def retry_transcription(note_id):
+    note = Note.query.get_or_404(note_id)
+    if not note.recording_path:
+        return jsonify({"error": "No recording available to retranscribe."}), 400
+
+    audio_path = os.path.join(BASE_DIR, note.recording_path)
+    if not os.path.exists(audio_path):
+        return jsonify({"error": "Audio file not found."}), 404
+
+    note.transcription_status = TRANSCRIPTION_PENDING
+    note.transcription_error = None
+    db.session.commit()
+    enqueue_transcription(note.id, audio_path)
+    return jsonify({"message": "Retrying transcription."})
+
+
+@app.route("/notes/<int:note_id>/retry_key_points", methods=["POST"])
+def retry_key_points(note_id):
+    note = Note.query.get_or_404(note_id)
+    if note.transcription_status != TRANSCRIPTION_COMPLETED or not note.transcription:
+        return jsonify({"error": "Transcript is not available yet."}), 400
+
+    note.key_points_status = KEY_POINTS_PENDING
+    note.key_points_error = None
+    db.session.commit()
+    transcription_executor.submit(extract_key_points, note.id, note.transcription)
+    return jsonify({"message": "Retrying key point extraction."})
 
 
 @app.route("/update_note/<int:note_id>", methods=["POST"])
