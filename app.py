@@ -19,6 +19,7 @@ import uuid
 import threading
 import requests
 import markdown
+from collections import defaultdict
 from markupsafe import Markup
 from concurrent.futures import ThreadPoolExecutor
 from werkzeug.utils import secure_filename
@@ -142,6 +143,47 @@ class Note(db.Model):
     )
 
     key_points_error = db.Column(db.Text, nullable=True)
+    tags = db.relationship("Tag", secondary="note_tags", backref="notes")
+
+
+note_tags = db.Table(
+    "note_tags",
+    db.Column("note_id", db.Integer, db.ForeignKey("note.id"), primary_key=True),
+    db.Column("tag_id", db.Integer, db.ForeignKey("tag.id"), primary_key=True),
+)
+
+
+class Tag(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    color = db.Column(db.String(7), nullable=False)
+    parent_id = db.Column(db.Integer, db.ForeignKey("tag.id"), nullable=True)
+    parent = db.relationship("Tag", remote_side=[id], backref="children")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "color": self.color,
+            "parent_id": self.parent_id,
+        }
+
+
+def get_tag_descendant_ids(root_ids):
+    """Return root_ids plus all descendant tag ids."""
+    children_by_parent = defaultdict(list)
+    for tag_id, parent_id in Tag.query.with_entities(Tag.id, Tag.parent_id).all():
+        children_by_parent[parent_id].append(tag_id)
+
+    result = set(root_ids)
+    stack = list(root_ids)
+    while stack:
+        current = stack.pop()
+        for child_id in children_by_parent.get(current, []):
+            if child_id not in result:
+                result.add(child_id)
+                stack.append(child_id)
+    return result
 
 
 def init_database():
@@ -178,11 +220,16 @@ def init_database():
                 )
 
 
-DEFAULT_PER_PAGE = 30
+DEFAULT_PER_PAGE = 10
 
 
 def build_notes_query(
-    search=None, date_from=None, date_to=None, time_from=None, time_to=None
+    search=None,
+    date_from=None,
+    date_to=None,
+    time_from=None,
+    time_to=None,
+    tag_ids=None,
 ):
     query = Note.query
 
@@ -213,16 +260,26 @@ def build_notes_query(
             Note.start_time <= (time_to + ":59" if len(time_to) == 5 else time_to)
         )
 
+    if tag_ids:
+        expanded_ids = get_tag_descendant_ids(tag_ids)
+        query = query.filter(Note.tags.any(Tag.id.in_(expanded_ids)))
+
     return query.order_by(Note.id.desc())
 
 
 def parse_notes_filters_from_request():
+    tag_ids = [
+        int(tag_id)
+        for tag_id in (request.args.get("tags") or "").split(",")
+        if tag_id.strip().isdigit()
+    ]
     return {
         "search": (request.args.get("q") or "").strip(),
         "date_from": (request.args.get("date_from") or "").strip() or None,
         "date_to": (request.args.get("date_to") or "").strip() or None,
         "time_from": (request.args.get("time_from") or "").strip() or None,
         "time_to": (request.args.get("time_to") or "").strip() or None,
+        "tag_ids": tag_ids,
     }
 
 
@@ -258,6 +315,7 @@ def index():
         or filters["date_to"]
         or filters["time_from"]
         or filters["time_to"]
+        or filters["tag_ids"]
     )
 
     return render_template(
@@ -288,6 +346,7 @@ def api_notes():
         or filters["date_to"]
         or filters["time_from"]
         or filters["time_to"]
+        or filters["tag_ids"]
     )
 
     html = render_template(
@@ -489,7 +548,14 @@ def extract_key_points(note_id, transcript):
             if not content:
                 raise ValueError("Ollama returned an empty response.")
 
-            parsed = json.loads(content)
+            try:
+                parsed = json.loads(content)
+            except json.JSONDecodeError:
+                # Ollama sometimes emits backslashes that aren't valid JSON
+                # escapes (e.g. LaTeX-style "\(" ). Escape stray backslashes
+                # and retry instead of failing the whole extraction.
+                sanitized = re.sub(r'\\(?!["\\/bfnrtu])', r"\\\\", content)
+                parsed = json.loads(sanitized)
             title = (parsed.get("title") or "").strip()
             key_points = (parsed.get("key_points") or "").strip()
 
@@ -642,6 +708,67 @@ def download_key_points(note_id):
         mimetype="text/markdown",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@app.route("/api/tags")
+def api_tags():
+    tags = Tag.query.order_by(Tag.name).all()
+    return jsonify({"tags": [tag.to_dict() for tag in tags]})
+
+
+@app.route("/api/tags", methods=["POST"])
+def create_tag():
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    color = (data.get("color") or "").strip()
+    parent_id = data.get("parent_id")
+
+    if not name or not re.match(r"^#[0-9a-fA-F]{6}$", color):
+        return jsonify({"error": "A tag name and a valid hex color are required."}), 400
+
+    if parent_id is not None:
+        parent_id = int(parent_id)
+        Tag.query.get_or_404(parent_id)
+
+    tag = Tag(name=name[:100], color=color, parent_id=parent_id)
+    db.session.add(tag)
+    db.session.commit()
+    return jsonify({"tag": tag.to_dict()})
+
+
+@app.route("/api/tags/<int:tag_id>", methods=["POST"])
+def update_tag(tag_id):
+    tag = Tag.query.get_or_404(tag_id)
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    color = (data.get("color") or "").strip()
+
+    if not name or not re.match(r"^#[0-9a-fA-F]{6}$", color):
+        return jsonify({"error": "A tag name and a valid hex color are required."}), 400
+
+    tag.name = name[:100]
+    tag.color = color
+    db.session.commit()
+    return jsonify({"tag": tag.to_dict()})
+
+
+@app.route("/api/tags/<int:tag_id>/delete", methods=["POST"])
+def delete_tag(tag_id):
+    Tag.query.get_or_404(tag_id)
+    ids_to_delete = get_tag_descendant_ids([tag_id])
+    Tag.query.filter(Tag.id.in_(ids_to_delete)).delete(synchronize_session=False)
+    db.session.commit()
+    return jsonify({"message": "Tag deleted."})
+
+
+@app.route("/notes/<int:note_id>/tags", methods=["POST"])
+def set_note_tags(note_id):
+    note = Note.query.get_or_404(note_id)
+    data = request.get_json(silent=True) or {}
+    tag_ids = [int(tag_id) for tag_id in (data.get("tag_ids") or [])]
+    note.tags = Tag.query.filter(Tag.id.in_(tag_ids)).all() if tag_ids else []
+    db.session.commit()
+    return jsonify({"tags": [tag.to_dict() for tag in note.tags]})
 
 
 @app.route("/update_note/<int:note_id>", methods=["POST"])

@@ -44,3 +44,48 @@ body.sync-enabled .transcript-word:hover {
 .markdown-content h3:first-child {
     margin-top: 0;
 }
+
+.tag-badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 1rem;
+    font-size: 0.75rem;
+    color: #fff;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
+}
+
+ul.tag-tree,
+ul.tag-children {
+    list-style: none;
+    padding-left: 1.25rem;
+    margin-bottom: 0;
+}
+
+ul.tag-tree {
+    padding-left: 0;
+}
+
+.tag-row-display,
+.tag-row-edit {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+}
+
+.tag-row-edit.d-none {
+    display: none;
+}
+
+.tag-filter-menu {
+    min-width: 220px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.note-tags-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+}

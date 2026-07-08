@@ -8,16 +8,27 @@
                 <strong>{{ note.subject or "Untitled" }}</strong>
                 <div class="text-muted small">{{ note.date }} {{ note.start_time }} - {{ note.end_time }}
                 </div>
+                <div class="note-tags-row mt-1">
+                    {% for tag in note.tags %}
+                    <span class="tag-badge" style="background-color:{{ tag.color }}">{{ tag.name }}</span>
+                    {% endfor %}
+                    <button type="button" class="btn btn-link btn-sm p-0 edit-tags-btn" data-note-id="{{ note.id }}"
+                        data-tag-ids='{{ note.tags | map(attribute="id") | list | tojson }}'>
+                        Edit tags
+                    </button>
+                </div>
             </div>
 
             <div class="d-flex gap-2">
                 {% if note.transcription_status == "completed" and note.transcription %}
-                <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('download_transcript', note_id=note.id) }}">
+                <a class="btn btn-sm btn-outline-secondary"
+                    href="{{ url_for('download_transcript', note_id=note.id) }}">
                     Download transcript
                 </a>
                 {% endif %}
                 {% if note.key_points_status == "completed" and note.key_points %}
-                <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('download_key_points', note_id=note.id) }}">
+                <a class="btn btn-sm btn-outline-secondary"
+                    href="{{ url_for('download_key_points', note_id=note.id) }}">
                     Download key points
                 </a>
                 {% endif %}
@@ -96,7 +107,14 @@
             </button>
             <div class="collapse" id="transcript-{{ note.id }}">
                 <div class="small text-muted mb-1">Full Transcript</div>
-                {% include "_transcript.html" %}
+                {% set words = note.transcription_segments | from_json %}
+                {% if words %}
+                <p class="mb-0 note-text transcript-words" data-note-id="{{ note.id }}">{% for word in words -%}
+                    <span class="transcript-word" data-start="{{ word.s }}">{{ word.w }}</span>{%- endfor %}
+                </p>
+                {% else %}
+                <p class="mb-0 note-text">{{ note.transcription or "No speech detected." }}</p>
+                {% endif %}
             </div>
             {% endif %}
             {% elif note.transcription_status == "processing" %}
