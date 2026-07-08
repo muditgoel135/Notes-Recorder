@@ -1,4 +1,4 @@
-# Notes Recorder
+﻿# Notes Recorder
 
 A small Flask app for recording class notes from the browser microphone, transcribing them automatically, extracting key points, and browsing saved notes.
 
@@ -71,6 +71,7 @@ Optional environment variables (e.g. in a `.env` file):
 - `KEY_POINTS_RETRY_SECONDS` — how often (in seconds) to retry key-points extraction while there is no internet connection (default `30`).
 - `OLLAMA_MODEL` — Ollama model used for key-points extraction (default `gpt-oss:20b`).
 - `TRANSCRIBE_EXISTING_ON_STARTUP` — set to `false` to skip re-queuing any pending transcriptions/key-points on startup (default `true`).
+- `DEFAULT_PER_PAGE` — the maximum number of recordings shown per page (default `10`)
 
 ## Run
 

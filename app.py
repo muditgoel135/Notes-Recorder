@@ -115,6 +115,7 @@ OLLAMA_API_KEY = os.environ.get("OLLAMA_API_KEY", "")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gpt-oss:20b")
 OLLAMA_CHAT_URL = "https://ollama.com/api/chat"
 KEY_POINTS_RETRY_SECONDS = int(os.environ.get("KEY_POINTS_RETRY_SECONDS", "30"))
+DEFAULT_PER_PAGE = int(os.environ.get("DEFAULT_PER_PAGE", "10"))
 transcription_executor = ThreadPoolExecutor(max_workers=1)
 whisper_model = None
 whisper_model_lock = threading.Lock()
