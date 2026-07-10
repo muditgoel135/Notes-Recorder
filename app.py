@@ -19,6 +19,8 @@ import uuid
 import threading
 import requests
 import markdown
+import subprocess
+import tempfile
 from collections import defaultdict
 from markupsafe import Markup
 from concurrent.futures import ThreadPoolExecutor
@@ -102,7 +104,7 @@ TRANSCRIPTION_PENDING = "pending"
 TRANSCRIPTION_PROCESSING = "processing"
 TRANSCRIPTION_COMPLETED = "completed"
 TRANSCRIPTION_FAILED = "failed"
-WHISPER_MODEL_NAME = os.environ.get("WHISPER_MODEL", "base")
+WHISPER_MODEL_NAME = os.environ.get("WHISPER_MODEL", "small")
 TRANSCRIBE_EXISTING_ON_STARTUP = (
     os.environ.get("TRANSCRIBE_EXISTING_ON_STARTUP", "true").lower() != "false"
 )
@@ -435,19 +437,56 @@ HINDI_INITIAL_PROMPT = (
 )
 
 
+def denoise_audio(audio_path):
+    """Run the audio through ffmpeg noise reduction and return the temp file path.
+
+    Falls back to the original path if ffmpeg is missing or fails, since
+    transcribing noisy audio is better than not transcribing at all.
+    """
+    fd, denoised_path = tempfile.mkstemp(suffix=".wav")
+    os.close(fd)
+    try:
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                audio_path,
+                "-af",
+                "highpass=f=100,afftdn=nf=-25,dynaudnorm",
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                denoised_path,
+            ],
+            check=True,
+            capture_output=True,
+        )
+        return denoised_path
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        if os.path.exists(denoised_path):
+            os.remove(denoised_path)
+        return audio_path
+
+
 def transcribe_note(note_id, audio_path):
     with app.app_context():
+        denoised_path = audio_path
         try:
             note = update_transcription_status(note_id, TRANSCRIPTION_PROCESSING)
             if not note:
                 return
 
+            denoised_path = denoise_audio(audio_path)
+
             transcribe_kwargs = {"fp16": False, "word_timestamps": True}
             if note.subject == HINDI_SUBJECT:
                 transcribe_kwargs["language"] = "hi"
                 transcribe_kwargs["initial_prompt"] = HINDI_INITIAL_PROMPT
+                transcribe_kwargs["beam_size"] = 5
 
-            result = get_whisper_model().transcribe(audio_path, **transcribe_kwargs)
+            result = get_whisper_model().transcribe(denoised_path, **transcribe_kwargs)
             transcription = (result.get("text") or "").strip()
             words = [
                 {"s": word["start"], "w": word["word"]}
@@ -472,6 +511,10 @@ def transcribe_note(note_id, audio_path):
                 error=error_message[:1000],
             )
             return
+
+        finally:
+            if denoised_path != audio_path and os.path.exists(denoised_path):
+                os.remove(denoised_path)
 
         extract_key_points(note_id, transcription)
 
@@ -781,6 +824,8 @@ def retry_transcription(note_id):
 
     note.transcription_status = TRANSCRIPTION_PENDING
     note.transcription_error = None
+    note.key_points_status = KEY_POINTS_PENDING
+    note.key_points_error = None
     db.session.commit()
     enqueue_transcription(note.id, audio_path)
     return jsonify({"message": "Retrying transcription."})

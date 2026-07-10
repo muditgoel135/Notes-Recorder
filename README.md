@@ -10,10 +10,11 @@ A small Flask app for recording class notes from the browser microphone, transcr
 - Save recordings to the local `recordings/` folder.
 - Upload existing audio files.
 - Play saved recordings from the app.
+- Audio is denoised with ffmpeg before transcription to improve accuracy.
 - Automatic background transcription using OpenAI Whisper (runs fully offline, once the model is downloaded).
 - Automatic title and key-points extraction from the transcript using Ollama's hosted API (requires internet; waits and retries automatically if offline).
 - Inline editing of note title and key points.
-- Retry transcription or key-points extraction individually if either fails.
+- Retry transcription or key-points extraction at any time, not just after a failure. Retrying transcription also re-runs key-points extraction on the new transcript.
 - Download a note's transcript (`.txt`) or key points (`.md`).
 - Click a word in the transcript to jump playback to that point in the audio, with the current word highlighted as it plays.
 - Hierarchical tags: organize notes with nested tags and filter the notes list by tag.
@@ -29,6 +30,7 @@ A small Flask app for recording class notes from the browser microphone, transcr
 - SQLite
 - Browser `MediaRecorder` API
 - Bootstrap
+- ffmpeg (audio denoising)
 - OpenAI Whisper (speech-to-text)
 - Ollama API (title and key-points generation)
 
@@ -40,7 +42,8 @@ Notes-Recorder/
 |-- requirements.txt
 |-- templates/
 |   |-- index.html
-|   `-- _notes_list.html
+|   |-- _notes_list.html
+|   `-- _transcript.html
 |-- static/
 |-- recordings/
 `-- instance/
@@ -63,15 +66,17 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
+[ffmpeg](https://ffmpeg.org/download.html) must be installed and available on `PATH` — it's used both by Whisper to decode audio and to denoise recordings before transcription.
+
 Optional environment variables (e.g. in a `.env` file):
 
 - `SECRET_KEY` — Flask session secret.
-- `WHISPER_MODEL` — Whisper model size to load (default `base`).
+- `WHISPER_MODEL` — Whisper model size to load (default `small`).
 - `OLLAMA_API_KEY` — API key for Ollama's hosted chat API. Required for title/key-points extraction; without it, key-points extraction fails for each note but transcription still works.
 - `KEY_POINTS_RETRY_SECONDS` — how often (in seconds) to retry key-points extraction while there is no internet connection (default `30`).
 - `OLLAMA_MODEL` — Ollama model used for key-points extraction (default `gpt-oss:20b`).
 - `TRANSCRIBE_EXISTING_ON_STARTUP` — set to `false` to skip re-queuing any pending transcriptions/key-points on startup (default `true`).
-- `DEFAULT_PER_PAGE` — the maximum number of recordings shown per page (default `10`)
+- `DEFAULT_PER_PAGE` — number of notes shown per page in the notes list (default `10`).
 
 ## Run
 
@@ -93,7 +98,7 @@ http://127.0.0.1:5000/
 4. Click **Stop Recording** when you are done.
 5. The recording is saved and appears in the recordings list.
 6. Transcription and key-points extraction run in the background; the list updates automatically as they complete.
-7. Edit a note's title or key points inline if needed. If transcription or key-points extraction fails, use the **Retry** button next to the error.
+7. Edit a note's title or key points inline if needed. Use **Retry transcription** (next to **Show full transcript**) or **Retry key points** (next to **Show key points**) to redo either step at any time — including after a failure, or just to regenerate with an updated model.
 8. Once transcription or key-points extraction complete, download them from the note's **Download transcript** / **Download key points** buttons.
 9. Click a word in the transcript to jump the audio to that point; the word being spoken is highlighted during playback.
 10. Assign hierarchical tags to a note and filter the notes list by tag.

@@ -69,9 +69,17 @@
                     aria-controls="keypoints-{{ note.id }}">
                     Show key points
                 </button>
+                <button class="btn btn-link btn-sm ps-0 mt-1 retry-key-points-btn" type="button"
+                    data-note-id="{{ note.id }}">
+                    Retry key points
+                </button>
                 {% else %}
                 <div class="small text-muted mb-1">Key Points</div>
                 <div class="mb-0 markdown-content">{{ note.key_points | markdown }}</div>
+                <button class="btn btn-link btn-sm ps-0 mt-1 retry-key-points-btn" type="button"
+                    data-note-id="{{ note.id }}">
+                    Retry key points
+                </button>
                 {% endif %}
                 {% endif %}
             </div>
@@ -106,6 +114,10 @@
             <button class="btn btn-link btn-sm ps-0 mt-1" type="button" data-bs-toggle="collapse"
                 data-bs-target="#transcript-{{ note.id }}">
                 Show full transcript
+            </button>
+            <button class="btn btn-link btn-sm ps-0 mt-1 retry-transcription-btn" type="button"
+                data-note-id="{{ note.id }}">
+                Retry transcription
             </button>
             <div class="collapse" id="transcript-{{ note.id }}">
                 <div class="small text-muted mb-1">Full Transcript</div>
