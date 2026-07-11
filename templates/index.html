@@ -23,36 +23,7 @@
             </form>
 
             <form id="start-recording-form" class="mt-3">
-                <div>
-                    <label>
-                        <input type="radio" name="subject" value="Math" required>
-                        Math &nbsp; &nbsp;
-                    </label>
-                    <label>
-                        <input type="radio" name="subject" value="Physics" required>
-                        Physics &nbsp; &nbsp;
-                    </label>
-                    <label>
-                        <input type="radio" name="subject" value="Chemistry" required>
-                        Chemistry &nbsp; &nbsp;
-                    </label>
-                    <label>
-                        <input type="radio" name="subject" value="Biology" required>
-                        Biology &nbsp; &nbsp;
-                    </label>
-                    <label>
-                        <input type="radio" name="subject" value="English" required>
-                        English &nbsp; &nbsp;
-                    </label>
-                    <label>
-                        <input type="radio" name="subject" value="Hindi" required>
-                        Hindi &nbsp; &nbsp;
-                    </label>
-                    <label>
-                        <input type="radio" name="subject" value="Individuals and Societies" required>
-                        Individuals and Societies &nbsp; &nbsp;
-                    </label>
-                </div><br>
+                <div id="subject-radio-group"></div><br>
                 <button type="submit" id="start-button" class="btn btn-primary">Start Recording</button>
             </form>
 
@@ -65,6 +36,10 @@
         </div>
 
         <div class="text-end mb-2">
+            <button type="button" class="btn btn-outline-primary btn-sm" id="manage-subjects-btn"
+                data-bs-toggle="modal" data-bs-target="#manage-subjects-modal">
+                Manage Subjects
+            </button>
             <button type="button" class="btn btn-outline-primary btn-sm" id="manage-tags-btn" data-bs-toggle="modal"
                 data-bs-target="#manage-tags-modal">
                 Manage Tags
@@ -117,6 +92,26 @@
             {% include "_notes_list.html" %}
         </div>
     </div><br>
+
+    <div class="modal fade" id="manage-subjects-modal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Manage Subjects</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <ul class="list-group mb-3" id="subject-list-manage"></ul>
+                    <div class="small text-muted mb-1">Add subject</div>
+                    <div class="d-flex gap-2 align-items-end">
+                        <input type="text" id="new-subject-name" class="form-control form-control-sm">
+                        <button type="button" id="add-subject-btn" class="btn btn-sm btn-primary text-nowrap">Add</button>
+                    </div>
+                    <div class="small text-danger mt-2 d-none" id="subject-manage-error"></div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <div class="modal fade" id="manage-tags-modal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog">
@@ -302,6 +297,9 @@
             const cancelButton = event.target.closest(".cancel-note-btn");
             const saveButton = event.target.closest(".save-note-btn");
             const editTagsButton = event.target.closest(".edit-tags-btn");
+            const editSubjectButton = event.target.closest(".edit-subject-btn");
+            const cancelSubjectButton = event.target.closest(".cancel-subject-btn");
+            const saveSubjectButton = event.target.closest(".save-subject-btn");
             const pageButton = event.target.closest("#prev-page-btn, #next-page-btn");
             const wordSpan = event.target.closest(".transcript-word");
             const speakerBadge = event.target.closest(".speaker-badge");
@@ -362,6 +360,43 @@
                 renderNoteTagTree(checkedIds);
                 document.getElementById("note-tags-error").classList.add("d-none");
                 bootstrap.Modal.getOrCreateInstance(document.getElementById("note-tags-modal")).show();
+                return;
+            }
+
+            if (editSubjectButton) {
+                const noteId = editSubjectButton.dataset.noteId;
+                document.querySelector(`.note-subject-display[data-note-id="${noteId}"]`).classList.add("d-none");
+                document.querySelector(`.note-subject-edit[data-note-id="${noteId}"]`).classList.remove("d-none");
+                return;
+            }
+
+            if (cancelSubjectButton) {
+                const noteId = cancelSubjectButton.dataset.noteId;
+                document.querySelector(`.note-subject-edit[data-note-id="${noteId}"]`).classList.add("d-none");
+                document.querySelector(`.note-subject-display[data-note-id="${noteId}"]`).classList.remove("d-none");
+                return;
+            }
+
+            if (saveSubjectButton) {
+                const noteId = saveSubjectButton.dataset.noteId;
+                const editRow = document.querySelector(`.note-subject-edit[data-note-id="${noteId}"]`);
+                const subject = editRow.querySelector(".note-subject-input").value;
+                saveSubjectButton.disabled = true;
+                try {
+                    const response = await fetch(`/notes/${noteId}/subject`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ subject }),
+                    });
+                    if (!response.ok) {
+                        const data = await response.json().catch(() => ({}));
+                        throw new Error(data.error || "Could not save subject.");
+                    }
+                    fetchAndRenderNotes(currentPage);
+                } catch (error) {
+                    saveSubjectButton.disabled = false;
+                    alert(error.message);
+                }
                 return;
             }
 
@@ -522,6 +557,17 @@
             });
         }
 
+        function applyDynamicNoteStyles(root = document) {
+            root.querySelectorAll(".tag-badge[data-color]").forEach((badge) => {
+                badge.style.backgroundColor = badge.dataset.color;
+            });
+            root.querySelectorAll(".transcript-progress-bar[data-progress]").forEach((bar) => {
+                const value = Number(bar.dataset.progress) || 0;
+                bar.style.width = `${value}%`;
+                bar.setAttribute("aria-valuenow", String(value));
+            });
+        }
+
         let currentPage = 1;
         let pollTimer = null;
 
@@ -567,6 +613,7 @@
             const openCollapseIds = snapshotOpenCollapses();
             document.getElementById("recordings-list").innerHTML = data.html;
             bindAudioSync();
+            applyDynamicNoteStyles(document.getElementById("recordings-list"));
             restorePlayback(playbackSnapshots);
             restoreOpenCollapses(openCollapseIds);
             schedulePolling(data.has_active_transcription);
@@ -600,6 +647,7 @@
         });
 
         bindAudioSync();
+        applyDynamicNoteStyles(document.getElementById("recordings-list"));
         schedulePolling({{ has_active_transcription | tojson }});
 
         // --- Tag management ---
@@ -607,6 +655,7 @@
         let allTags = [];
         let selectedFilterTagIds = new Set();
         let activeNoteTagsId = null;
+        let allSubjects = [];
 
         function escapeHtml(value) {
             const div = document.createElement("div");
@@ -706,6 +755,83 @@
             badge.textContent = String(selectedFilterTagIds.size);
             badge.classList.toggle("d-none", selectedFilterTagIds.size === 0);
         }
+
+        function renderSubjectRadios() {
+            const container = document.getElementById("subject-radio-group");
+            const previousValue = getSelectedSubject();
+            container.innerHTML = allSubjects.map((subject) => `
+                <label>
+                    <input type="radio" name="subject" value="${escapeHtml(subject.name)}" required>
+                    ${escapeHtml(subject.name)} &nbsp; &nbsp;
+                </label>
+            `).join("");
+            const toReselect = container.querySelector(`input[value="${CSS.escape(previousValue)}"]`);
+            if (toReselect) {
+                toReselect.checked = true;
+            }
+        }
+
+        function renderSubjectManageList() {
+            const list = document.getElementById("subject-list-manage");
+            list.innerHTML = allSubjects.length
+                ? allSubjects.map((subject) => `
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        ${escapeHtml(subject.name)}
+                        <button type="button" class="btn btn-link btn-sm text-danger subject-delete-btn"
+                            data-subject-id="${subject.id}">Delete</button>
+                    </li>
+                `).join("")
+                : '<li class="list-group-item text-muted small">No subjects yet.</li>';
+        }
+
+        async function loadSubjects() {
+            const response = await fetch("/api/subjects");
+            if (!response.ok) {
+                return;
+            }
+            const data = await response.json();
+            allSubjects = data.subjects;
+            renderSubjectRadios();
+            renderSubjectManageList();
+        }
+
+        document.getElementById("manage-subjects-modal").addEventListener("click", async (event) => {
+            const deleteBtn = event.target.closest(".subject-delete-btn");
+            const addBtn = event.target.closest("#add-subject-btn");
+            const errorBox = document.getElementById("subject-manage-error");
+
+            if (deleteBtn) {
+                const subjectId = deleteBtn.dataset.subjectId;
+                if (!confirm("Delete this subject?")) {
+                    return;
+                }
+                await fetch(`/api/subjects/${subjectId}/delete`, { method: "POST" });
+                await loadSubjects();
+                return;
+            }
+
+            if (addBtn) {
+                const name = document.getElementById("new-subject-name").value.trim();
+                errorBox.classList.add("d-none");
+                try {
+                    const response = await fetch("/api/subjects", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ name }),
+                    });
+                    if (!response.ok) {
+                        const data = await response.json().catch(() => ({}));
+                        throw new Error(data.error || "Could not create subject.");
+                    }
+                    document.getElementById("new-subject-name").value = "";
+                    await loadSubjects();
+                } catch (error) {
+                    errorBox.textContent = error.message;
+                    errorBox.classList.remove("d-none");
+                }
+                return;
+            }
+        });
 
         async function loadTags() {
             const response = await fetch("/api/tags");
@@ -848,6 +974,7 @@
         });
 
         loadTags();
+        loadSubjects();
     </script>
 </body>
 

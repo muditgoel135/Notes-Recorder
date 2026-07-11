@@ -28,6 +28,7 @@ class Note(db.Model):
     transcription_status = db.Column(
         db.String(20), nullable=False, default=TRANSCRIPTION_PENDING
     )
+    transcription_progress = db.Column(db.Integer, nullable=True, default=0)
 
     transcription_error = db.Column(db.Text, nullable=True)
     title = db.Column(db.String(200), nullable=True)
@@ -65,6 +66,14 @@ class Speaker(db.Model):
             "display_name": self.display_name,
             "color": self.color,
         }
+
+
+class Subject(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False, unique=True)
+
+    def to_dict(self):
+        return {"id": self.id, "name": self.name}
 
 
 note_tags = db.Table(

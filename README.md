@@ -5,13 +5,13 @@ A small Flask app for recording class notes from the browser microphone, transcr
 ## Features
 
 - Record audio directly in the browser.
-- Choose a subject before recording.
+- Choose a subject before recording; subjects are managed in-app (add or delete via **Manage Subjects**) rather than hardcoded, and a note's subject can be edited afterwards.
 - Start and stop recordings manually.
 - Save recordings to the local `recordings/` folder.
 - Upload existing audio files.
 - Play saved recordings from the app.
 - Audio is denoised with ffmpeg before transcription to improve accuracy.
-- Automatic background transcription using OpenAI Whisper (runs fully offline, once the model is downloaded).
+- Automatic background transcription using OpenAI Whisper (runs fully offline, once the model is downloaded), with a live progress bar showing percent complete.
 - Speaker diarization: automatically detects and labels distinct speakers ("Speaker 1", "Speaker 2", ...) in the transcript, shown as color-coded badges. Speakers can be renamed per note (e.g. "Teacher"). Requires a Hugging Face token; falls back to an undifferentiated transcript if not configured.
 - Automatic title and key-points extraction from the transcript using Ollama's hosted API (requires internet; waits and retries automatically if offline). When diarization is available, key points are generated from the speaker-labeled transcript.
 - Inline editing of note title and key points.
@@ -43,7 +43,7 @@ Notes-Recorder/
 |-- app.py             # entry point: wires everything together, starts the app
 |-- extensions.py       # Flask app + SQLAlchemy db instances
 |-- config.py           # environment-derived settings and constants
-|-- models.py           # Note, Speaker, Tag database models
+|-- models.py           # Note, Speaker, Subject, Tag database models
 |-- notes_query.py      # DB init/migration and notes list querying
 |-- recordings.py       # audio file storage helpers
 |-- transcription.py    # Whisper transcription, diarization, Ollama key points
@@ -112,12 +112,13 @@ http://127.0.0.1:5000/
 3. Allow microphone permission in the browser.
 4. Click **Stop Recording** when you are done.
 5. The recording is saved and appears in the recordings list.
-6. Transcription and key-points extraction run in the background; the list updates automatically as they complete.
-7. Edit a note's title or key points inline if needed. Use **Retry transcription** (next to **Show full transcript**) or **Retry key points** (next to **Show key points**) to redo either step at any time — including after a failure, or just to regenerate with an updated model.
+6. Transcription and key-points extraction run in the background; the list updates automatically as they complete, showing a live progress bar while transcription is in progress.
+7. Edit a note's title, key points, or subject inline if needed. Use **Retry transcription** (next to **Show full transcript**) or **Retry key points** (next to **Show key points**) to redo either step at any time — including after a failure, or just to regenerate with an updated model.
 8. Once transcription or key-points extraction complete, download them from the note's **Download transcript** / **Download key points** buttons.
 9. Click a word in the transcript to jump the audio to that point; the word being spoken is highlighted during playback.
 10. When diarization is configured, each speaker turn shows a colored badge (e.g. "Speaker 1"); click a badge to rename that speaker for the note (e.g. "Teacher").
 11. Assign hierarchical tags to a note and filter the notes list by tag.
+12. Use **Manage Subjects** to add or delete subjects available when starting a recording.
 
 You can also upload existing `.wav`, `.mp3`, `.ogg`, `.webm`, `.m4a`, or `.mp4` audio files.
 

@@ -5,8 +5,10 @@ import socket
 import subprocess
 import tempfile
 import threading
+import time
 import wave
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 
 import numpy as np
 import requests
@@ -78,6 +80,66 @@ def update_transcription_status(
     note.transcription_error = error
     db.session.commit()
     return note
+
+
+def update_transcription_progress(note_id, progress):
+    note = db.session.get(Note, note_id)
+    if not note:
+        return None
+
+    note.transcription_progress = progress
+    db.session.commit()
+    return note
+
+
+@contextmanager
+def track_whisper_progress(note_id):
+    """Patch whisper's internal tqdm progress bar to persist percent-complete
+    onto the note, so the UI can render a live progress bar during transcription.
+
+    Whisper only exposes progress through a tqdm instance tracking mel frames
+    processed vs. total frames, with no callback hook, so we swap in a tqdm
+    subclass for the duration of the transcribe() call to intercept updates.
+    """
+    import sys
+
+    import whisper  # noqa: F401  (ensures whisper.transcribe is in sys.modules)
+
+    # `whisper.transcribe` is shadowed on the package by the top-level
+    # `transcribe` function (see whisper/__init__.py), so the submodule that
+    # defines the tqdm-based progress bar must be looked up via sys.modules
+    # instead of attribute access.
+    whisper_transcribe_module = sys.modules["whisper.transcribe"]
+
+    last_reported = {"percent": -1, "time": 0.0}
+
+    def report(current_frames, total_frames):
+        if not total_frames:
+            return
+        percent = min(99, int(current_frames / total_frames * 100))
+        now = time.monotonic()
+        if percent == last_reported["percent"] or now - last_reported["time"] < 1:
+            return
+        last_reported["percent"] = percent
+        last_reported["time"] = now
+        update_transcription_progress(note_id, percent)
+
+    real_tqdm_cls = whisper_transcribe_module.tqdm.tqdm
+
+    class ReportingTqdm(real_tqdm_cls):
+        def update(self, n=1):
+            super().update(n)
+            report(self.n, self.total)
+
+    class TqdmModuleShim:
+        tqdm = ReportingTqdm
+
+    original_tqdm_module = whisper_transcribe_module.tqdm
+    whisper_transcribe_module.tqdm = TqdmModuleShim
+    try:
+        yield
+    finally:
+        whisper_transcribe_module.tqdm = original_tqdm_module
 
 
 def update_key_points_status(note_id, status, title=None, key_points=None, error=None):
@@ -219,16 +281,18 @@ def transcribe_note(note_id, audio_path):
             note = update_transcription_status(note_id, TRANSCRIPTION_PROCESSING)
             if not note:
                 return
+            update_transcription_progress(note_id, 0)
 
             denoised_path = denoise_audio(audio_path)
 
-            transcribe_kwargs = {"fp16": False, "word_timestamps": True}
+            transcribe_kwargs = {"fp16": False, "word_timestamps": True, "verbose": False}
             if note.subject == HINDI_SUBJECT:
                 transcribe_kwargs["language"] = "hi"
                 transcribe_kwargs["initial_prompt"] = HINDI_INITIAL_PROMPT
                 transcribe_kwargs["beam_size"] = 5
 
-            result = get_whisper_model().transcribe(denoised_path, **transcribe_kwargs)
+            with track_whisper_progress(note_id):
+                result = get_whisper_model().transcribe(denoised_path, **transcribe_kwargs)
             transcription = (result.get("text") or "").strip()
             words = [
                 {"s": word["start"], "w": word["word"]}

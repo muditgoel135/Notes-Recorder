@@ -54,6 +54,14 @@ body.sync-enabled .transcript-word:hover {
     text-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
 }
 
+.auto-width-input {
+    width: auto;
+}
+
+.transcript-progress {
+    height: 6px;
+}
+
 ul.tag-tree,
 ul.tag-children {
     list-style: none;

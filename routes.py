@@ -12,7 +12,7 @@ from flask import (
 )
 
 from extensions import app, db
-from models import Note, Tag, Speaker, get_tag_descendant_ids
+from models import Note, Tag, Subject, Speaker, get_tag_descendant_ids
 from notes_query import (
     build_notes_query,
     parse_notes_filters_from_request,
@@ -60,6 +60,7 @@ def index():
         total=pagination.total,
         has_active_transcription=has_active_transcription,
         has_filters=has_filters,
+        subjects=Subject.query.order_by(Subject.name).all(),
     )
 
 
@@ -90,6 +91,7 @@ def api_notes():
         total_pages=pagination.pages or 1,
         total=pagination.total,
         has_filters=has_filters,
+        subjects=Subject.query.order_by(Subject.name).all(),
     )
 
     return jsonify(
@@ -168,6 +170,37 @@ def download_key_points(note_id):
     )
 
 
+@app.route("/api/subjects")
+def api_subjects():
+    subjects = Subject.query.order_by(Subject.name).all()
+    return jsonify({"subjects": [subject.to_dict() for subject in subjects]})
+
+
+@app.route("/api/subjects", methods=["POST"])
+def create_subject():
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+
+    if not name:
+        return jsonify({"error": "A subject name is required."}), 400
+
+    if Subject.query.filter(db.func.lower(Subject.name) == name.lower()).first():
+        return jsonify({"error": "That subject already exists."}), 400
+
+    subject = Subject(name=name[:100])
+    db.session.add(subject)
+    db.session.commit()
+    return jsonify({"subject": subject.to_dict()})
+
+
+@app.route("/api/subjects/<int:subject_id>/delete", methods=["POST"])
+def delete_subject(subject_id):
+    subject = Subject.query.get_or_404(subject_id)
+    db.session.delete(subject)
+    db.session.commit()
+    return jsonify({"message": "Subject deleted."})
+
+
 @app.route("/api/tags")
 def api_tags():
     tags = Tag.query.order_by(Tag.name).all()
@@ -227,6 +260,20 @@ def set_note_tags(note_id):
     note.tags = Tag.query.filter(Tag.id.in_(tag_ids)).all() if tag_ids else []
     db.session.commit()
     return jsonify({"tags": [tag.to_dict() for tag in note.tags]})
+
+
+@app.route("/notes/<int:note_id>/subject", methods=["POST"])
+def update_note_subject(note_id):
+    note = Note.query.get_or_404(note_id)
+    data = request.get_json(silent=True) or {}
+    subject = (data.get("subject") or "").strip()
+
+    if not subject:
+        return jsonify({"error": "A subject is required."}), 400
+
+    note.subject = subject[:100]
+    db.session.commit()
+    return jsonify({"subject": note.subject})
 
 
 @app.route("/notes/<int:note_id>/speakers/<int:speaker_id>/rename", methods=["POST"])

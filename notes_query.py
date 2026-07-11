@@ -2,7 +2,7 @@ from flask import request
 from sqlalchemy import inspect, text
 
 from extensions import db
-from models import Note, Tag, get_tag_descendant_ids
+from models import Note, Tag, Subject, get_tag_descendant_ids
 from config import (
     TRANSCRIPTION_PENDING,
     TRANSCRIPTION_PROCESSING,
@@ -10,9 +10,24 @@ from config import (
     KEY_POINTS_PROCESSING,
 )
 
+DEFAULT_SUBJECTS = [
+    "Math",
+    "Physics",
+    "Chemistry",
+    "Biology",
+    "English",
+    "Hindi",
+    "Individuals and Societies",
+]
+
 
 def init_database():
     db.create_all()
+
+    if not Subject.query.first():
+        db.session.add_all(Subject(name=name) for name in DEFAULT_SUBJECTS)
+        db.session.commit()
+
     inspector = inspect(db.engine)
     if "note" not in inspector.get_table_names():
         return
@@ -28,6 +43,7 @@ def init_database():
         "transcription": "TEXT",
         "transcription_segments": "TEXT",
         "transcription_status": f"VARCHAR(20) NOT NULL DEFAULT '{TRANSCRIPTION_PENDING}'",
+        "transcription_progress": "INTEGER DEFAULT 0",
         "transcription_error": "TEXT",
         "title": "VARCHAR(200)",
         "key_points": "TEXT",

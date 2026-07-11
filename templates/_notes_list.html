@@ -6,12 +6,36 @@
     <div class="list-group-item">
         <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap">
             <div>
-                <strong>{{ note.subject or "Untitled" }}</strong>
+                <div class="d-flex align-items-center gap-2 note-subject-display" data-note-id="{{ note.id }}">
+                    <strong>{{ note.subject or "Untitled" }}</strong>
+                    <button type="button" class="btn btn-link btn-sm p-0 edit-subject-btn" data-note-id="{{ note.id }}">
+                        Edit
+                    </button>
+                </div>
+                <div class="d-flex align-items-center gap-2 note-subject-edit d-none mt-1" data-note-id="{{ note.id }}">
+                    {% set subject_names = subjects | map(attribute="name") | list %}
+                    <select class="form-select form-select-sm note-subject-input auto-width-input"
+                        aria-label="Subject">
+                        {% if note.subject and note.subject not in subject_names %}
+                        <option value="{{ note.subject }}" selected>{{ note.subject }}</option>
+                        {% endif %}
+                        {% for subj in subject_names %}
+                        <option value="{{ subj }}" {% if note.subject==subj %}selected{% endif %}>{{ subj }}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="button" class="btn btn-sm btn-primary save-subject-btn" data-note-id="{{ note.id }}">
+                        Save
+                    </button>
+                    <button type="button" class="btn btn-sm btn-secondary cancel-subject-btn"
+                        data-note-id="{{ note.id }}">
+                        Cancel
+                    </button>
+                </div>
                 <div class="text-muted small">{{ note.date }} {{ note.start_time }} - {{ note.end_time }}
                 </div>
                 <div class="note-tags-row mt-1">
                     {% for tag in note.tags %}
-                    <span class="tag-badge" style="background-color:{{ tag.color }}">{{ tag.name }}</span>
+                    <span class="tag-badge" data-color="{{ tag.color }}">{{ tag.name }}</span>
                     {% endfor %}
                     <button type="button" class="btn btn-link btn-sm p-0 edit-tags-btn" data-note-id="{{ note.id }}"
                         data-tag-ids='{{ note.tags | map(attribute="id") | list | tojson }}'>
@@ -127,7 +151,13 @@
             </div>
             {% endif %}
             {% elif note.transcription_status == "processing" %}
-            <div class="small text-muted">Transcribing...</div>
+            <div class="small text-muted mb-1">Transcribing... {{ note.transcription_progress or 0 }}%</div>
+            <div class="progress transcript-progress">
+                <div class="progress-bar transcript-progress-bar" role="progressbar"
+                    data-progress="{{ note.transcription_progress or 0 }}" aria-label="Transcription progress"
+                    aria-valuemin="0" aria-valuemax="100">
+                </div>
+            </div>
             {% elif note.transcription_status == "failed" %}
             <div class="small text-danger">
                 Transcription failed{% if note.transcription_error %}: {{ note.transcription_error }}{%
