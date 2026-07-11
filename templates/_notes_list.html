@@ -1,3 +1,4 @@
+{% import "_transcript_macros.html" as transcript %}
 {% if notes %}
 <h2 class="h4">Recordings</h2>
 <div class="list-group">
@@ -122,13 +123,7 @@
             <div class="collapse" id="transcript-{{ note.id }}">
                 <div class="small text-muted mb-1">Full Transcript</div>
                 {% set words = note.transcription_segments | from_json %}
-                {% if words %}
-                <p class="mb-0 note-text transcript-words" data-note-id="{{ note.id }}">{% for word in words -%}
-                    <span class="transcript-word" data-start="{{ word.s }}">{{ word.w }}</span>{%- endfor %}
-                </p>
-                {% else %}
-                <p class="mb-0 note-text">{{ note.transcription or "No speech detected." }}</p>
-                {% endif %}
+                {{ transcript.render_words(note, words) }}
             </div>
             {% endif %}
             {% elif note.transcription_status == "processing" %}

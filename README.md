@@ -12,7 +12,8 @@ A small Flask app for recording class notes from the browser microphone, transcr
 - Play saved recordings from the app.
 - Audio is denoised with ffmpeg before transcription to improve accuracy.
 - Automatic background transcription using OpenAI Whisper (runs fully offline, once the model is downloaded).
-- Automatic title and key-points extraction from the transcript using Ollama's hosted API (requires internet; waits and retries automatically if offline).
+- Speaker diarization: automatically detects and labels distinct speakers ("Speaker 1", "Speaker 2", ...) in the transcript, shown as color-coded badges. Speakers can be renamed per note (e.g. "Teacher"). Requires a Hugging Face token; falls back to an undifferentiated transcript if not configured.
+- Automatic title and key-points extraction from the transcript using Ollama's hosted API (requires internet; waits and retries automatically if offline). When diarization is available, key points are generated from the speaker-labeled transcript.
 - Inline editing of note title and key points.
 - Retry transcription or key-points extraction at any time, not just after a failure. Retrying transcription also re-runs key-points extraction on the new transcript.
 - Download a note's transcript (`.txt`) or key points (`.md`).
@@ -32,18 +33,28 @@ A small Flask app for recording class notes from the browser microphone, transcr
 - Bootstrap
 - ffmpeg (audio denoising)
 - OpenAI Whisper (speech-to-text)
+- pyannote.audio (speaker diarization)
 - Ollama API (title and key-points generation)
 
 ## Project Structure
 
 ```text
 Notes-Recorder/
-|-- app.py
+|-- app.py             # entry point: wires everything together, starts the app
+|-- extensions.py       # Flask app + SQLAlchemy db instances
+|-- config.py           # environment-derived settings and constants
+|-- models.py           # Note, Speaker, Tag database models
+|-- notes_query.py      # DB init/migration and notes list querying
+|-- recordings.py       # audio file storage helpers
+|-- transcription.py    # Whisper transcription, diarization, Ollama key points
+|-- routes.py           # Flask view functions
+|-- text_filters.py     # Jinja template filters (markdown, from_json)
 |-- requirements.txt
 |-- templates/
 |   |-- index.html
 |   |-- _notes_list.html
-|   `-- _transcript.html
+|   |-- _transcript.html
+|   `-- _transcript_macros.html
 |-- static/
 |-- recordings/
 `-- instance/
@@ -77,6 +88,10 @@ Optional environment variables (e.g. in a `.env` file):
 - `OLLAMA_MODEL` — Ollama model used for key-points extraction (default `gpt-oss:20b`).
 - `TRANSCRIBE_EXISTING_ON_STARTUP` — set to `false` to skip re-queuing any pending transcriptions/key-points on startup (default `true`).
 - `DEFAULT_PER_PAGE` — number of notes shown per page in the notes list (default `10`).
+- `HUGGINGFACE_TOKEN` — Hugging Face access token used for speaker diarization (`pyannote.audio`). Without it, transcripts still work but aren't split by speaker. To set one up:
+  1. Create a free account at [huggingface.co](https://huggingface.co) and generate a **read**-scope token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
+  2. Accept the model terms (with that same account) for [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1), [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0), and [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1).
+  3. Set `HUGGINGFACE_TOKEN=hf_...` in `.env`. The diarization model downloads and caches locally the first time it's used.
 
 ## Run
 
@@ -101,7 +116,8 @@ http://127.0.0.1:5000/
 7. Edit a note's title or key points inline if needed. Use **Retry transcription** (next to **Show full transcript**) or **Retry key points** (next to **Show key points**) to redo either step at any time — including after a failure, or just to regenerate with an updated model.
 8. Once transcription or key-points extraction complete, download them from the note's **Download transcript** / **Download key points** buttons.
 9. Click a word in the transcript to jump the audio to that point; the word being spoken is highlighted during playback.
-10. Assign hierarchical tags to a note and filter the notes list by tag.
+10. When diarization is configured, each speaker turn shows a colored badge (e.g. "Speaker 1"); click a badge to rename that speaker for the note (e.g. "Teacher").
+11. Assign hierarchical tags to a note and filter the notes list by tag.
 
 You can also upload existing `.wav`, `.mp3`, `.ogg`, `.webm`, `.m4a`, or `.mp4` audio files.
 
@@ -116,3 +132,4 @@ Use the search box and date/time filters above the notes list to find recordings
 - Transcription and key-points extraction run one at a time in a background worker; large backlogs process sequentially.
 - The first transcription run downloads the selected Whisper model, which can take a while depending on model size and network speed.
 - The app can be used fully offline for recording and transcription. Key-points extraction needs internet access to reach Ollama; while offline it shows as "Extracting key points..." and retries automatically until a connection is available.
+- Speaker diarization requires internet access (and a valid `HUGGINGFACE_TOKEN`) the first time it downloads the diarization model; after that it runs locally like Whisper. If diarization fails or isn't configured, transcription still completes normally, just without speaker labels.

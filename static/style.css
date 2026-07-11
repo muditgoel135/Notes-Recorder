@@ -61,6 +61,22 @@ ul.tag-children {
     margin-bottom: 0;
 }
 
+.transcript-turn {
+    display: block;
+    margin-bottom: 0.35rem;
+}
+
+.speaker-badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    margin-right: 0.4rem;
+    border-radius: 1rem;
+    font-size: 0.75rem;
+    color: #fff;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
+    cursor: pointer;
+}
+
 ul.tag-tree {
     padding-left: 0;
 }

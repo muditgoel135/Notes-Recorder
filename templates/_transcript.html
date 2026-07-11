@@ -1,24 +1,13 @@
+{% import "_transcript_macros.html" as transcript %}
 {% set words = note.transcription_segments | from_json %}
 {% if note.transcription and note.transcription | length > 500 %}
 <div class="collapse" id="transcript-{{ note.id }}">
-    {% if words %}
-    <p class="mb-0 note-text transcript-words" data-note-id="{{ note.id }}">{% for word in words -%}
-        <span class="transcript-word" data-start="{{ word.s }}">{{ word.w }}</span>{%- endfor %}
-    </p>
-    {% else %}
-    <p class="mb-0 note-text">{{ note.transcription or "No speech detected." }}</p>
-    {% endif %}
+    {{ transcript.render_words(note, words) }}
 </div>
 <button class="btn btn-link btn-sm ps-0 mt-1" type="button" data-bs-toggle="collapse"
     data-bs-target="#transcript-{{ note.id }}" aria-expanded="false" aria-controls="transcript-{{ note.id }}">
     Show full transcript
 </button>
 {% else %}
-{% if words %}
-<p class="mb-0 note-text transcript-words" data-note-id="{{ note.id }}">{% for word in words -%}
-    <span class="transcript-word" data-start="{{ word.s }}">{{ word.w }}</span>{%- endfor %}
-</p>
-{% else %}
-<p class="mb-0 note-text">{{ note.transcription or "No speech detected." }}</p>
-{% endif %}
+{{ transcript.render_words(note, words) }}
 {% endif %}

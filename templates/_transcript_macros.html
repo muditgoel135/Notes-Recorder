@@ -1,0 +1,22 @@
+{% macro render_words(note, words) %}
+{%- if words %}
+{%- set speakers = note.speakers_by_order() %}
+<div class="transcript-words" data-note-id="{{ note.id }}">
+    {%- set ns = namespace(spk=none, open=false) -%}
+    {%- for word in words -%}
+    {%- if word.spk != ns.spk -%}
+    {%- if ns.open %}</span></div>{% endif -%}
+{%- set ns.spk = word.spk -%}
+<div class="transcript-turn">{% if word.spk is not none and speakers.get(word.spk) %}{% set speaker = speakers[word.spk]
+    %}<span class="speaker-badge" data-note-id="{{ note.id }}" data-speaker-id="{{ speaker.id }}"
+        style="background-color:{{ speaker.color }}">{{ speaker.display_name or speaker.label }}</span>{% endif %}<span
+        class="transcript-turn-words">{%- set ns.open = true -%}
+        {%- endif -%}
+        <span class="transcript-word" data-start="{{ word.s }}">{{ word.w }}</span>
+        {%- endfor -%}
+        {%- if ns.open %}</span></div>{% endif %}
+</div>
+{%- else %}
+<p class="mb-0 note-text">{{ note.transcription or "No speech detected." }}</p>
+{%- endif %}
+{%- endmacro %}

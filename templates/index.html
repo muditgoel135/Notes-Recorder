@@ -304,8 +304,36 @@
             const editTagsButton = event.target.closest(".edit-tags-btn");
             const pageButton = event.target.closest("#prev-page-btn, #next-page-btn");
             const wordSpan = event.target.closest(".transcript-word");
+            const speakerBadge = event.target.closest(".speaker-badge");
             const retryTranscriptionButton = event.target.closest(".retry-transcription-btn");
             const retryKeyPointsButton = event.target.closest(".retry-key-points-btn");
+
+            if (speakerBadge) {
+                const name = prompt("Rename speaker:", speakerBadge.textContent.trim());
+                if (name && name.trim() && name.trim() !== speakerBadge.textContent.trim()) {
+                    const noteId = speakerBadge.dataset.noteId;
+                    const speakerId = speakerBadge.dataset.speakerId;
+                    try {
+                        const response = await fetch(`/notes/${noteId}/speakers/${speakerId}/rename`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ name: name.trim() }),
+                        });
+                        if (!response.ok) {
+                            const data = await response.json().catch(() => ({}));
+                            throw new Error(data.error || "Rename failed.");
+                        }
+                        document.querySelectorAll(
+                            `.speaker-badge[data-note-id="${noteId}"][data-speaker-id="${speakerId}"]`
+                        ).forEach((badge) => {
+                            badge.textContent = name.trim();
+                        });
+                    } catch (error) {
+                        alert(error.message);
+                    }
+                }
+                return;
+            }
 
             if (retryTranscriptionButton || retryKeyPointsButton) {
                 const button = retryTranscriptionButton || retryKeyPointsButton;
@@ -475,6 +503,25 @@
             });
         }
 
+        function snapshotOpenCollapses() {
+            return Array.from(document.querySelectorAll("#recordings-list .collapse.show"))
+                .map((el) => el.id)
+                .filter(Boolean);
+        }
+
+        function restoreOpenCollapses(ids) {
+            ids.forEach((id) => {
+                const el = document.getElementById(id);
+                if (!el) {
+                    return;
+                }
+                el.classList.add("show");
+                document.querySelectorAll(`[data-bs-target="#${id}"]`).forEach((toggle) => {
+                    toggle.setAttribute("aria-expanded", "true");
+                });
+            });
+        }
+
         let currentPage = 1;
         let pollTimer = null;
 
@@ -517,9 +564,11 @@
             const data = await response.json();
             currentPage = data.page;
             const playbackSnapshots = snapshotPlayback();
+            const openCollapseIds = snapshotOpenCollapses();
             document.getElementById("recordings-list").innerHTML = data.html;
             bindAudioSync();
             restorePlayback(playbackSnapshots);
+            restoreOpenCollapses(openCollapseIds);
             schedulePolling(data.has_active_transcription);
         }
 
