@@ -11,7 +11,7 @@
 
 </head>
 
-<body>
+<body data-has-active-transcription="{{ has_active_transcription | tojson }}">
     <div class="container mt-5">
         <h1 class="text-center mb-4">Notes Recorder</h1>
         <div class="text-center mb-4">
@@ -36,8 +36,8 @@
         </div>
 
         <div class="text-end mb-2">
-            <button type="button" class="btn btn-outline-primary btn-sm" id="manage-subjects-btn"
-                data-bs-toggle="modal" data-bs-target="#manage-subjects-modal">
+            <button type="button" class="btn btn-outline-primary btn-sm" id="manage-subjects-btn" data-bs-toggle="modal"
+                data-bs-target="#manage-subjects-modal">
                 Manage Subjects
             </button>
             <button type="button" class="btn btn-outline-primary btn-sm" id="manage-tags-btn" data-bs-toggle="modal"
@@ -76,6 +76,15 @@
                 </button>
                 <div class="dropdown-menu p-2 tag-filter-menu" id="filter-tag-tree"></div>
             </div>
+            <div class="col-6 col-md-2 dropdown">
+                <label class="form-label small mb-1 d-block">Subject</label>
+                <button class="btn btn-outline-secondary btn-sm dropdown-toggle w-100" type="button"
+                    id="subject-filter-btn" data-bs-toggle="dropdown" data-bs-auto-close="outside"
+                    aria-expanded="false">
+                    Subject <span id="subject-filter-count" class="badge bg-secondary d-none">0</span>
+                </button>
+                <div class="dropdown-menu p-2 tag-filter-menu" id="filter-subject-list"></div>
+            </div>
             <div class="col-12 col-md-1">
                 <button id="clear-filters-btn" type="button" class="btn btn-outline-secondary btn-sm w-100">
                     Clear
@@ -105,7 +114,8 @@
                     <div class="small text-muted mb-1">Add subject</div>
                     <div class="d-flex gap-2 align-items-end">
                         <input type="text" id="new-subject-name" class="form-control form-control-sm">
-                        <button type="button" id="add-subject-btn" class="btn btn-sm btn-primary text-nowrap">Add</button>
+                        <button type="button" id="add-subject-btn"
+                            class="btn btn-sm btn-primary text-nowrap">Add</button>
                     </div>
                     <div class="small text-danger mt-2 d-none" id="subject-manage-error"></div>
                 </div>
@@ -558,7 +568,7 @@
         }
 
         function applyDynamicNoteStyles(root = document) {
-            root.querySelectorAll(".tag-badge[data-color]").forEach((badge) => {
+            root.querySelectorAll(".tag-badge[data-color], .speaker-badge[data-color]").forEach((badge) => {
                 badge.style.backgroundColor = badge.dataset.color;
             });
             root.querySelectorAll(".transcript-progress-bar[data-progress]").forEach((bar) => {
@@ -579,6 +589,7 @@
                 time_from: document.getElementById("time-from-input").value,
                 time_to: document.getElementById("time-to-input").value,
                 tags: Array.from(selectedFilterTagIds).join(","),
+                subjects: Array.from(selectedFilterSubjects).join(","),
             };
         }
 
@@ -601,6 +612,7 @@
             if (filters.time_from) params.set("time_from", filters.time_from);
             if (filters.time_to) params.set("time_to", filters.time_to);
             if (filters.tags) params.set("tags", filters.tags);
+            if (filters.subjects) params.set("subjects", filters.subjects);
             params.set("page", String(page));
 
             const response = await fetch(`/api/notes?${params.toString()}`);
@@ -643,12 +655,15 @@
             selectedFilterTagIds.clear();
             renderFilterTagTree();
             updateTagFilterCount();
+            selectedFilterSubjects.clear();
+            renderFilterSubjectList();
+            updateSubjectFilterCount();
             fetchAndRenderNotes(1);
         });
 
         bindAudioSync();
         applyDynamicNoteStyles(document.getElementById("recordings-list"));
-        schedulePolling({{ has_active_transcription | tojson }});
+        schedulePolling(document.body.dataset.hasActiveTranscription === "true");
 
         // --- Tag management ---
 
@@ -656,6 +671,7 @@
         let selectedFilterTagIds = new Set();
         let activeNoteTagsId = null;
         let allSubjects = [];
+        let selectedFilterSubjects = new Set();
 
         function escapeHtml(value) {
             const div = document.createElement("div");
@@ -771,6 +787,27 @@
             }
         }
 
+        function renderFilterSubjectList() {
+            const container = document.getElementById("filter-subject-list");
+            container.innerHTML = allSubjects.length
+                ? `<ul class="tag-tree">${allSubjects.map((subject) => `
+                    <li>
+                        <label class="d-flex align-items-center gap-2">
+                            <input type="checkbox" class="filter-subject-checkbox" value="${escapeHtml(subject.name)}"
+                                ${selectedFilterSubjects.has(subject.name) ? "checked" : ""}>
+                            ${escapeHtml(subject.name)}
+                        </label>
+                    </li>
+                `).join("")}</ul>`
+                : '<p class="text-muted small mb-0">No subjects yet.</p>';
+        }
+
+        function updateSubjectFilterCount() {
+            const badge = document.getElementById("subject-filter-count");
+            badge.textContent = String(selectedFilterSubjects.size);
+            badge.classList.toggle("d-none", selectedFilterSubjects.size === 0);
+        }
+
         function renderSubjectManageList() {
             const list = document.getElementById("subject-list-manage");
             list.innerHTML = allSubjects.length
@@ -793,6 +830,7 @@
             allSubjects = data.subjects;
             renderSubjectRadios();
             renderSubjectManageList();
+            renderFilterSubjectList();
         }
 
         document.getElementById("manage-subjects-modal").addEventListener("click", async (event) => {
@@ -857,6 +895,20 @@
                 selectedFilterTagIds.delete(tagId);
             }
             updateTagFilterCount();
+            fetchAndRenderNotes(1);
+        });
+
+        document.getElementById("filter-subject-list").addEventListener("change", (event) => {
+            const checkbox = event.target.closest(".filter-subject-checkbox");
+            if (!checkbox) {
+                return;
+            }
+            if (checkbox.checked) {
+                selectedFilterSubjects.add(checkbox.value);
+            } else {
+                selectedFilterSubjects.delete(checkbox.value);
+            }
+            updateSubjectFilterCount();
             fetchAndRenderNotes(1);
         });
 

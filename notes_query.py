@@ -68,6 +68,7 @@ def build_notes_query(
     time_from=None,
     time_to=None,
     tag_ids=None,
+    subjects=None,
 ):
     query = Note.query
 
@@ -102,6 +103,9 @@ def build_notes_query(
         expanded_ids = get_tag_descendant_ids(tag_ids)
         query = query.filter(Note.tags.any(Tag.id.in_(expanded_ids)))
 
+    if subjects:
+        query = query.filter(Note.subject.in_(subjects))
+
     return query.order_by(Note.id.desc())
 
 
@@ -111,6 +115,11 @@ def parse_notes_filters_from_request():
         for tag_id in (request.args.get("tags") or "").split(",")
         if tag_id.strip().isdigit()
     ]
+    subjects = [
+        subject
+        for subject in (request.args.get("subjects") or "").split(",")
+        if subject.strip()
+    ]
     return {
         "search": (request.args.get("q") or "").strip(),
         "date_from": (request.args.get("date_from") or "").strip() or None,
@@ -118,6 +127,7 @@ def parse_notes_filters_from_request():
         "time_from": (request.args.get("time_from") or "").strip() or None,
         "time_to": (request.args.get("time_to") or "").strip() or None,
         "tag_ids": tag_ids,
+        "subjects": subjects,
     }
 
 

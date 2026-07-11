@@ -285,14 +285,20 @@ def transcribe_note(note_id, audio_path):
 
             denoised_path = denoise_audio(audio_path)
 
-            transcribe_kwargs = {"fp16": False, "word_timestamps": True, "verbose": False}
+            transcribe_kwargs = {
+                "fp16": False,
+                "word_timestamps": True,
+                "verbose": False,
+            }
             if note.subject == HINDI_SUBJECT:
                 transcribe_kwargs["language"] = "hi"
                 transcribe_kwargs["initial_prompt"] = HINDI_INITIAL_PROMPT
                 transcribe_kwargs["beam_size"] = 5
 
             with track_whisper_progress(note_id):
-                result = get_whisper_model().transcribe(denoised_path, **transcribe_kwargs)
+                result = get_whisper_model().transcribe(
+                    denoised_path, **transcribe_kwargs
+                )
             transcription = (result.get("text") or "").strip()
             words = [
                 {"s": word["start"], "w": word["word"]}

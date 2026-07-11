@@ -9,7 +9,7 @@
 {%- set ns.spk = word.spk -%}
 <div class="transcript-turn">{% if word.spk is not none and speakers.get(word.spk) %}{% set speaker = speakers[word.spk]
     %}<span class="speaker-badge" data-note-id="{{ note.id }}" data-speaker-id="{{ speaker.id }}"
-        style="background-color:{{ speaker.color }}">{{ speaker.display_name or speaker.label }}</span>{% endif %}<span
+        data-color="{{ speaker.color }}">{{ speaker.display_name or speaker.label }}</span>{% endif %}<span
         class="transcript-turn-words">{%- set ns.open = true -%}
         {%- endif -%}
         <span class="transcript-word" data-start="{{ word.s }}">{{ word.w }}</span>

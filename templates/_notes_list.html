@@ -14,8 +14,7 @@
                 </div>
                 <div class="d-flex align-items-center gap-2 note-subject-edit d-none mt-1" data-note-id="{{ note.id }}">
                     {% set subject_names = subjects | map(attribute="name") | list %}
-                    <select class="form-select form-select-sm note-subject-input auto-width-input"
-                        aria-label="Subject">
+                    <select class="form-select form-select-sm note-subject-input auto-width-input" aria-label="Subject">
                         {% if note.subject and note.subject not in subject_names %}
                         <option value="{{ note.subject }}" selected>{{ note.subject }}</option>
                         {% endif %}

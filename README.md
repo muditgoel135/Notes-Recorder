@@ -18,9 +18,11 @@ A small Flask app for recording class notes from the browser microphone, transcr
 - Retry transcription or key-points extraction at any time, not just after a failure. Retrying transcription also re-runs key-points extraction on the new transcript.
 - Download a note's transcript (`.txt`) or key points (`.md`).
 - Click a word in the transcript to jump playback to that point in the audio, with the current word highlighted as it plays.
-- Hierarchical tags: organize notes with nested tags and filter the notes list by tag.
-- Search and filter notes by text, date range, and time range.
+- Hierarchical tags: organize notes with nested tags, each with a custom color, managed in-app via **Manage Tags** (add, edit, or add a subtag), and filter the notes list by tag.
+- Search and filter notes by text, date range, time range, and subject.
+- For notes recorded under the "Hindi" subject, transcription is tuned for Hindi speech (with English words/phrases transcribed in English) using a Hindi-specific prompt and language setting.
 - Paginated notes list.
+- Delete a note, which also removes its saved recording file.
 - Store recording and note metadata in SQLite.
 
 ## Tech Stack
@@ -117,8 +119,10 @@ http://127.0.0.1:5000/
 8. Once transcription or key-points extraction complete, download them from the note's **Download transcript** / **Download key points** buttons.
 9. Click a word in the transcript to jump the audio to that point; the word being spoken is highlighted during playback.
 10. When diarization is configured, each speaker turn shows a colored badge (e.g. "Speaker 1"); click a badge to rename that speaker for the note (e.g. "Teacher").
-11. Assign hierarchical tags to a note and filter the notes list by tag.
+11. Assign hierarchical tags to a note and filter the notes list by tag. Use **Manage Tags** to create, edit (name/color), or nest tags as subtags.
 12. Use **Manage Subjects** to add or delete subjects available when starting a recording.
+13. Filter the notes list by one or more subjects using the **Subject** dropdown.
+14. Click **Delete** on a note to remove it, along with its saved recording file.
 
 You can also upload existing `.wav`, `.mp3`, `.ogg`, `.webm`, `.m4a`, or `.mp4` audio files.
 
@@ -134,3 +138,4 @@ Use the search box and date/time filters above the notes list to find recordings
 - The first transcription run downloads the selected Whisper model, which can take a while depending on model size and network speed.
 - The app can be used fully offline for recording and transcription. Key-points extraction needs internet access to reach Ollama; while offline it shows as "Extracting key points..." and retries automatically until a connection is available.
 - Speaker diarization requires internet access (and a valid `HUGGINGFACE_TOKEN`) the first time it downloads the diarization model; after that it runs locally like Whisper. If diarization fails or isn't configured, transcription still completes normally, just without speaker labels.
+- Key-points extraction tolerates minor JSON formatting mistakes in Ollama's response (e.g. stray backslashes) by attempting to repair and re-parse them before failing.

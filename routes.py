@@ -50,6 +50,7 @@ def index():
         or filters["time_from"]
         or filters["time_to"]
         or filters["tag_ids"]
+        or filters["subjects"]
     )
 
     return render_template(
@@ -82,6 +83,7 @@ def api_notes():
         or filters["time_from"]
         or filters["time_to"]
         or filters["tag_ids"]
+        or filters["subjects"]
     )
 
     html = render_template(
