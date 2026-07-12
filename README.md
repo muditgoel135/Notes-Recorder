@@ -17,7 +17,7 @@ A small Flask app for recording class notes from the browser microphone, transcr
 - Inline editing of note title and key points.
 - Retry transcription or key-points extraction at any time, not just after a failure. Retrying transcription also re-runs key-points extraction on the new transcript.
 - Download a note's transcript (`.txt`) or key points (`.md`).
-- Click a word in the transcript to jump playback to that point in the audio, with the current word highlighted as it plays.
+- Click a word in the transcript to jump playback to that point in the audio, with the current word highlighted as it plays. A **Sync transcript with audio playback** checkbox toggles this behavior on or off (remembered across visits).
 - Hierarchical tags: organize notes with nested tags, each with a custom color, managed in-app via **Manage Tags** (add, edit, or add a subtag), and filter the notes list by tag.
 - Search and filter notes by text, date range, time range, and subject.
 - For notes recorded under the "Hindi" subject, transcription is tuned for Hindi speech (with English words/phrases transcribed in English) using a Hindi-specific prompt and language setting.
@@ -58,6 +58,9 @@ Notes-Recorder/
 |   |-- _transcript.html
 |   `-- _transcript_macros.html
 |-- static/
+|   |-- app.js          # all client-side JS: recording, filters, tags, subjects, transcript sync
+|   |-- style.css
+|   `-- bootstrap-css/, bootstrap-js/  # vendored Bootstrap assets
 |-- recordings/
 `-- instance/
 ```
@@ -133,7 +136,7 @@ Use the search box and date/time filters above the notes list to find recordings
 - Browser microphone recording works on `localhost`/`127.0.0.1` and HTTPS pages.
 - The app records from the browser microphone, not the server machine's microphone.
 - Saved recording files are ignored by Git through `recordings/` in `.gitignore`.
-- The app creates or updates its SQLite tables on startup.
+- The app creates or updates its SQLite tables on startup, and seeds a default subject list (Math, Physics, Chemistry, Biology, English, Hindi, Individuals and Societies) the first time it runs with no subjects yet. Manage or replace these afterwards via **Manage Subjects**.
 - Transcription and key-points extraction run one at a time in a background worker; large backlogs process sequentially.
 - The first transcription run downloads the selected Whisper model, which can take a while depending on model size and network speed.
 - The app can be used fully offline for recording and transcription. Key-points extraction needs internet access to reach Ollama; while offline it shows as "Extracting key points..." and retries automatically until a connection is available.
