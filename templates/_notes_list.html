@@ -56,8 +56,9 @@
                     Download key points
                 </a>
                 {% endif %}
-                <form action="{{ '/delete/' + note.id|string }}" method="post" class="mb-0">
-                    <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                <form action="{{ '/delete/' + note.id|string }}" method="post" class="mb-0 delete-note-form">
+                    <button type="submit" class="btn btn-sm btn-danger delete-note-btn"
+                        data-note-id="{{ note.id }}">Delete</button>
                 </form>
             </div>
 

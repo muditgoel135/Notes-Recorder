@@ -175,7 +175,7 @@ def denoise_audio(audio_path):
                 "-i",
                 audio_path,
                 "-af",
-                "highpass=f=100,afftdn=nf=-25,dynaudnorm",
+                "highpass=f=100,afftdn=nf=-25",
                 "-ar",
                 "16000",
                 "-ac",
@@ -186,6 +186,7 @@ def denoise_audio(audio_path):
             capture_output=True,
         )
         return denoised_path
+
     except (subprocess.CalledProcessError, FileNotFoundError, OSError):
         if os.path.exists(denoised_path):
             os.remove(denoised_path)

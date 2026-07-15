@@ -50,6 +50,35 @@ class Note(db.Model):
         return {speaker.order_index: speaker for speaker in self.speakers}
 
 
+class RecordingSession(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    session_key = db.Column(db.String(32), nullable=False, unique=True, index=True)
+    subject = db.Column(db.String(100), nullable=True)
+    start_time = db.Column(db.String(8), nullable=False)
+    end_time = db.Column(db.String(8), nullable=True)
+    status = db.Column(db.String(20), nullable=False, default="active")
+    mime_type = db.Column(db.String(100), nullable=True)
+    extension = db.Column(db.String(10), nullable=False, default="webm")
+    chunk_count = db.Column(db.Integer, nullable=False, default=0)
+    segments_json = db.Column(db.Text, nullable=True)
+    note_id = db.Column(db.Integer, db.ForeignKey("note.id"), nullable=True)
+    note = db.relationship("Note", backref="recording_session", uselist=False)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "session_key": self.session_key,
+            "subject": self.subject,
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+            "status": self.status,
+            "mime_type": self.mime_type,
+            "extension": self.extension,
+            "chunk_count": self.chunk_count,
+            "note_id": self.note_id,
+        }
+
+
 class Speaker(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     note_id = db.Column(db.Integer, db.ForeignKey("note.id"), nullable=False)

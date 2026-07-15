@@ -18,7 +18,17 @@ from notes_query import (
     parse_notes_filters_from_request,
     check_has_active_transcription,
 )
-from recordings import allowed_file, note_download_basename, save_audio_file
+from recordings import (
+    ACTIVE_RECORDING_STATUS,
+    allowed_file,
+    cancel_recording_session,
+    create_recording_session,
+    finish_recording_session,
+    get_session_by_key,
+    note_download_basename,
+    save_audio_file,
+    save_recording_chunk,
+)
 from transcription import enqueue_transcription, extract_key_points
 from config import (
     BASE_DIR,
@@ -122,6 +132,86 @@ def save_recording():
 
     note = save_audio_file(audio_file, subject, start_time, end_time)
     return jsonify({"message": "Recording saved.", "id": note.id})
+
+
+@app.route("/api/recording_sessions", methods=["POST"])
+def create_recording_session_route():
+    data = request.get_json(silent=True) or {}
+    subject = (data.get("subject") or "").strip()
+    mime_type = (data.get("mime_type") or "").strip()
+    extension = (data.get("extension") or "webm").strip().lower()
+    start_time = (data.get("start_time") or "").strip() or None
+
+    if not subject:
+        return jsonify({"error": "A subject is required."}), 400
+    if extension not in {"wav", "mp3", "ogg", "webm", "m4a", "mp4"}:
+        return jsonify({"error": "Unsupported audio file type."}), 400
+
+    session = create_recording_session(subject, mime_type, extension, start_time)
+    return jsonify({"session": session.to_dict()})
+
+
+@app.route("/api/recording_sessions/<session_key>")
+def get_recording_session_route(session_key):
+    session = get_session_by_key(session_key)
+    if not session:
+        return jsonify({"error": "Recording session was not found."}), 404
+    return jsonify({"session": session.to_dict()})
+
+
+@app.route("/api/recording_sessions/<session_key>/chunks", methods=["POST"])
+def save_recording_chunk_route(session_key):
+    session = get_session_by_key(session_key)
+    if not session:
+        return jsonify({"error": "Recording session was not found."}), 404
+    if session.status != ACTIVE_RECORDING_STATUS:
+        return jsonify({"error": "Recording session is not active."}), 400
+
+    chunk_file = request.files.get("audio")
+    if not chunk_file or chunk_file.filename == "":
+        return jsonify({"error": "No audio chunk received."}), 400
+
+    try:
+        save_recording_chunk(
+            session,
+            chunk_file,
+            request.form.get("segment_index", 0, type=int),
+            request.form.get("chunk_index", 0, type=int),
+        )
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+
+    return jsonify({"message": "Chunk saved.", "chunk_count": session.chunk_count})
+
+
+@app.route("/api/recording_sessions/<session_key>/finish", methods=["POST"])
+def finish_recording_session_route(session_key):
+    session = get_session_by_key(session_key)
+    if not session:
+        return jsonify({"error": "Recording session was not found."}), 404
+
+    data = request.get_json(silent=True) or {}
+    end_time = (data.get("end_time") or "").strip() or None
+    try:
+        note = finish_recording_session(session, end_time)
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+
+    return jsonify({"message": "Recording saved.", "id": note.id})
+
+
+@app.route("/api/recording_sessions/<session_key>/cancel", methods=["POST"])
+def cancel_recording_session_route(session_key):
+    session = get_session_by_key(session_key)
+    if not session:
+        return jsonify({"error": "Recording session was not found."}), 404
+
+    try:
+        cancel_recording_session(session)
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+
+    return jsonify({"message": "Recording canceled."})
 
 
 @app.route("/upload", methods=["POST"])
@@ -347,4 +437,7 @@ def delete_note(note_id):
 
     db.session.delete(note)
     db.session.commit()
+
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"message": "Note deleted."})
     return redirect(url_for("index"))

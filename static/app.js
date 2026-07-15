@@ -2,11 +2,21 @@ const startForm = document.getElementById("start-recording-form");
 const stopForm = document.getElementById("stop-recording-form");
 const startButton = document.getElementById("start-button");
 const stopButton = document.getElementById("stop-button");
+const cancelButton = document.getElementById("cancel-button");
 const statusBox = document.getElementById("recording-status");
 
 let mediaRecorder;
-let audioChunks = [];
+let mediaStream;
 let recordingStartTime;
+let activeRecordingSession = null;
+let currentSegmentIndex = 0;
+let nextChunkIndex = 0;
+let pendingChunkUploads = [];
+let isStoppingRecording = false;
+let hasChunkUploadError = false;
+
+const ACTIVE_RECORDING_STORAGE_KEY = "activeRecordingSession";
+const RECORDING_CHUNK_INTERVAL_MS = 2000;
 
 function setStatus(message, isError = false) {
     statusBox.textContent = message;
@@ -61,9 +71,196 @@ async function uploadRecording(blob, extension) {
     }
 }
 
-startForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
+function saveActiveRecordingSession() {
+    if (activeRecordingSession) {
+        localStorage.setItem(ACTIVE_RECORDING_STORAGE_KEY, JSON.stringify(activeRecordingSession));
+    }
+}
 
+function clearActiveRecordingSession() {
+    activeRecordingSession = null;
+    localStorage.removeItem(ACTIVE_RECORDING_STORAGE_KEY);
+}
+
+function loadActiveRecordingSession() {
+    const storedValue = localStorage.getItem(ACTIVE_RECORDING_STORAGE_KEY);
+    if (!storedValue) {
+        return null;
+    }
+    try {
+        return JSON.parse(storedValue);
+    } catch (error) {
+        localStorage.removeItem(ACTIVE_RECORDING_STORAGE_KEY);
+        return null;
+    }
+}
+
+function setRecordingControls(isRecording) {
+    startButton.disabled = isRecording;
+    stopButton.disabled = !isRecording;
+    cancelButton.disabled = !isRecording;
+}
+
+function stopMediaStream() {
+    if (mediaStream) {
+        mediaStream.getTracks().forEach((track) => track.stop());
+        mediaStream = null;
+    }
+}
+
+function getActiveSessionKey() {
+    return activeRecordingSession ? activeRecordingSession.sessionKey : "";
+}
+
+async function createRecordingSession(mimeType, extension) {
+    recordingStartTime = new Date();
+    const response = await fetch("/api/recording_sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            subject: getSelectedSubject(),
+            mime_type: mimeType,
+            extension,
+            start_time: getTimeString(recordingStartTime),
+        }),
+    });
+
+    if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "Could not start recording session.");
+    }
+
+    const data = await response.json();
+    return {
+        sessionKey: data.session.session_key,
+        subject: data.session.subject,
+        startTime: data.session.start_time,
+        mimeType: data.session.mime_type || mimeType,
+        extension: data.session.extension || extension,
+        nextSegmentIndex: 0,
+    };
+}
+
+async function uploadRecordingChunk(blob, segmentIndex, chunkIndex) {
+    const formData = new FormData();
+    formData.append("audio", blob, `chunk.${activeRecordingSession.extension}`);
+    formData.append("segment_index", String(segmentIndex));
+    formData.append("chunk_index", String(chunkIndex));
+
+    const response = await fetch(`/api/recording_sessions/${getActiveSessionKey()}/chunks`, {
+        method: "POST",
+        body: formData,
+    });
+
+    if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "Could not save recording chunk.");
+    }
+}
+
+function queueChunkUpload(blob) {
+    const segmentIndex = currentSegmentIndex;
+    const chunkIndex = nextChunkIndex;
+    nextChunkIndex += 1;
+
+    const uploadPromise = uploadRecordingChunk(blob, segmentIndex, chunkIndex)
+        .catch((error) => {
+            hasChunkUploadError = true;
+            setStatus(`${error.message} Recording is still recoverable.`, true);
+            throw error;
+        })
+        .finally(() => {
+            pendingChunkUploads = pendingChunkUploads.filter((promise) => promise !== uploadPromise);
+        });
+    pendingChunkUploads.push(uploadPromise);
+}
+
+async function waitForPendingChunkUploads() {
+    const results = await Promise.allSettled(pendingChunkUploads);
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed) {
+        throw failed.reason;
+    }
+    if (hasChunkUploadError) {
+        throw new Error("Some recording chunks were not saved.");
+    }
+}
+
+async function finishRecordingSession() {
+    const response = await fetch(`/api/recording_sessions/${getActiveSessionKey()}/finish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ end_time: getTimeString(new Date()) }),
+    });
+
+    if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "Could not finish recording.");
+    }
+}
+
+async function finishRecoveredSessionWithoutRecorder() {
+    try {
+        setStatus("Saving recovered recording...");
+        await finishRecordingSession();
+        clearActiveRecordingSession();
+        setRecordingControls(false);
+        setStatus("Recovered recording saved.");
+        fetchAndRenderNotes(currentPage);
+    } catch (error) {
+        setRecordingControls(true);
+        setStatus(error.message, true);
+    }
+}
+
+async function startRecorderForActiveSession(isRecovered = false) {
+    if (!mediaStream) {
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    }
+    const recorderOptions = activeRecordingSession.mimeType ? { mimeType: activeRecordingSession.mimeType } : {};
+    mediaRecorder = new MediaRecorder(mediaStream, recorderOptions);
+    currentSegmentIndex = Number(activeRecordingSession.nextSegmentIndex || 0);
+    nextChunkIndex = 0;
+    pendingChunkUploads = [];
+    hasChunkUploadError = false;
+    isStoppingRecording = false;
+    activeRecordingSession.nextSegmentIndex = currentSegmentIndex + 1;
+    saveActiveRecordingSession();
+
+    mediaRecorder.addEventListener("dataavailable", (event) => {
+        if (event.data.size > 0 && activeRecordingSession) {
+            queueChunkUpload(event.data);
+        }
+    });
+
+    mediaRecorder.addEventListener("stop", async () => {
+        stopMediaStream();
+        if (!isStoppingRecording) {
+            return;
+        }
+
+        try {
+            setStatus("Saving recording...");
+            await waitForPendingChunkUploads();
+            await finishRecordingSession();
+            clearActiveRecordingSession();
+            setRecordingControls(false);
+            setStatus("Recording saved.");
+            fetchAndRenderNotes(currentPage);
+        } catch (error) {
+            setRecordingControls(true);
+            setStatus(`${error.message} Reload recovery is still available.`, true);
+        } finally {
+            isStoppingRecording = false;
+        }
+    });
+
+    mediaRecorder.start(RECORDING_CHUNK_INTERVAL_MS);
+    setRecordingControls(true);
+    setStatus(isRecovered ? "Recording resumed after reload..." : "Recording...");
+}
+
+async function startRecording() {
     if (!startForm.checkValidity()) {
         startForm.reportValidity();
         return;
@@ -75,51 +272,95 @@ startForm.addEventListener("submit", async (event) => {
     }
 
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        audioChunks = [];
         const mimeType = getSupportedMimeType();
-        const recorderOptions = mimeType ? { mimeType } : {};
-        mediaRecorder = new MediaRecorder(stream, recorderOptions);
-        recordingStartTime = new Date();
-
-        mediaRecorder.addEventListener("dataavailable", (event) => {
-            if (event.data.size > 0) {
-                audioChunks.push(event.data);
-            }
-        });
-
-        mediaRecorder.addEventListener("stop", async () => {
-            startButton.disabled = false;
-            stopButton.disabled = true;
-            stream.getTracks().forEach((track) => track.stop());
-
-            try {
-                const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
-                await uploadRecording(blob, getExtension(mediaRecorder.mimeType));
-                setStatus("Recording saved.");
-                fetchAndRenderNotes(currentPage);
-            } catch (error) {
-                setStatus(error.message, true);
-            }
-        });
-
-        mediaRecorder.start();
-        startButton.disabled = true;
-        stopButton.disabled = false;
-        setStatus("Recording...");
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        activeRecordingSession = await createRecordingSession(mimeType, getExtension(mimeType));
+        saveActiveRecordingSession();
+        await startRecorderForActiveSession(false);
     } catch (error) {
-        startButton.disabled = false;
-        stopButton.disabled = true;
-        setStatus("Microphone access was denied or unavailable.", true);
+        stopMediaStream();
+        setRecordingControls(false);
+        setStatus(error.message || "Microphone access was denied or unavailable.", true);
     }
+}
+
+startForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await startRecording();
 });
 
 stopForm.addEventListener("submit", (event) => {
     event.preventDefault();
     if (mediaRecorder && mediaRecorder.state === "recording") {
+        isStoppingRecording = true;
+        setRecordingControls(true);
+        stopButton.disabled = true;
+        setStatus("Stopping recording...");
+        mediaRecorder.requestData();
         mediaRecorder.stop();
+    } else if (activeRecordingSession) {
+        stopButton.disabled = true;
+        finishRecoveredSessionWithoutRecorder();
     }
 });
+
+cancelButton.addEventListener("click", async () => {
+    if (!activeRecordingSession || !confirm("Cancel this recording?")) {
+        return;
+    }
+
+    isStoppingRecording = false;
+    if (mediaRecorder && mediaRecorder.state === "recording") {
+        mediaRecorder.stop();
+    }
+    stopMediaStream();
+
+    try {
+        await fetch(`/api/recording_sessions/${getActiveSessionKey()}/cancel`, { method: "POST" });
+    } finally {
+        clearActiveRecordingSession();
+        setRecordingControls(false);
+        setStatus("Recording canceled.");
+    }
+});
+
+window.addEventListener("beforeunload", (event) => {
+    if (activeRecordingSession) {
+        event.preventDefault();
+        event.returnValue = "";
+    }
+});
+
+async function restoreActiveRecordingIfNeeded() {
+    const storedSession = loadActiveRecordingSession();
+    if (!storedSession || activeRecordingSession) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/recording_sessions/${storedSession.sessionKey}`);
+        if (!response.ok) {
+            clearActiveRecordingSession();
+            return;
+        }
+        const data = await response.json();
+        if (data.session.status !== "active") {
+            clearActiveRecordingSession();
+            return;
+        }
+
+        activeRecordingSession = storedSession;
+        startForm.querySelectorAll("input[name='subject']").forEach((input) => {
+            input.checked = input.value === storedSession.subject;
+        });
+        setRecordingControls(true);
+        setStatus("Restoring recording after reload...");
+        await startRecorderForActiveSession(true);
+    } catch (error) {
+        setRecordingControls(true);
+        setStatus("Recording can be resumed. Allow microphone access or cancel the session.", true);
+    }
+}
 
 document.getElementById("recordings-list").addEventListener("click", async (event) => {
     const editButton = event.target.closest(".edit-note-btn");
@@ -134,6 +375,31 @@ document.getElementById("recordings-list").addEventListener("click", async (even
     const speakerBadge = event.target.closest(".speaker-badge");
     const retryTranscriptionButton = event.target.closest(".retry-transcription-btn");
     const retryKeyPointsButton = event.target.closest(".retry-key-points-btn");
+    const deleteButton = event.target.closest(".delete-note-btn");
+
+    if (deleteButton) {
+        event.preventDefault();
+        if (!confirm("Delete this recording?")) {
+            return;
+        }
+        const noteId = deleteButton.dataset.noteId;
+        deleteButton.disabled = true;
+        try {
+            const response = await fetch(`/delete/${noteId}`, {
+                method: "POST",
+                headers: { "X-Requested-With": "XMLHttpRequest" },
+            });
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.error || "Could not delete recording.");
+            }
+            fetchAndRenderNotes(currentPage);
+        } catch (error) {
+            deleteButton.disabled = false;
+            alert(error.message);
+        }
+        return;
+    }
 
     if (speakerBadge) {
         const name = prompt("Rename speaker:", speakerBadge.textContent.trim());
@@ -845,4 +1111,4 @@ document.getElementById("save-note-tags-btn").addEventListener("click", async ()
 });
 
 loadTags();
-loadSubjects();
+loadSubjects().then(restoreActiveRecordingIfNeeded);
