@@ -47,6 +47,7 @@ def is_internet_available(host="8.8.8.8", port=53, timeout=3):
     try:
         with socket.create_connection((host, port), timeout=timeout):
             return True
+
     except OSError:
         return False
 
@@ -94,13 +95,18 @@ def update_transcription_progress(note_id, progress):
 
 @contextmanager
 def track_whisper_progress(note_id):
-    """Patch whisper's internal tqdm progress bar to persist percent-complete
+    """
+    Patch whisper's internal tqdm progress bar to persist percent-complete
     onto the note, so the UI can render a live progress bar during transcription.
 
     Whisper only exposes progress through a tqdm instance tracking mel frames
     processed vs. total frames, with no callback hook, so we swap in a tqdm
     subclass for the duration of the transcribe() call to intercept updates.
+
+    :param note_id: ID of the Note being transcribed
+    :return: Context manager that patches whisper's tqdm and restores it on exit
     """
+
     import sys
 
     import whisper  # noqa: F401  (ensures whisper.transcribe is in sys.modules)
@@ -160,11 +166,16 @@ def update_key_points_status(note_id, status, title=None, key_points=None, error
 
 
 def denoise_audio(audio_path):
-    """Run the audio through ffmpeg noise reduction and return the temp file path.
+    """
+    Run the audio through ffmpeg noise reduction and return the temp file path.
 
     Falls back to the original path if ffmpeg is missing or fails, since
     transcribing noisy audio is better than not transcribing at all.
+
+    :param audio_path: Path to the original audio file
+    :return: Path to the denoised audio file, or the original path on failure
     """
+
     fd, denoised_path = tempfile.mkstemp(suffix=".wav")
     os.close(fd)
     try:
@@ -209,12 +220,17 @@ def get_diarization_pipeline():
 
 
 def load_waveform(audio_path):
-    """Load a mono PCM WAV file into a pyannote-compatible waveform dict.
+    """
+    Load a mono PCM WAV file into a pyannote-compatible waveform dict.
 
     Reads the file directly with the stdlib wave module instead of handing
     the path to pyannote, since torchcodec (pyannote's default audio
     backend) frequently fails to load its native libraries on Windows.
+
+    :param audio_path: Path to a mono PCM WAV file
+    :return: Dict with "waveform" (torch.Tensor) and "sample_rate"
     """
+
     import torch
 
     with wave.open(audio_path, "rb") as wav_file:
@@ -227,12 +243,17 @@ def load_waveform(audio_path):
 
 
 def diarize_audio(audio_path):
-    """Return a list of (start, end, raw_speaker_label) turns, or None if unavailable.
+    """
+    Return a list of (start, end, raw_speaker_label) turns, or None if unavailable.
 
     Diarization is best-effort: a missing token, missing dependency, or a
     pipeline failure all fall back to an undifferentiated transcript rather
     than failing the whole transcription.
+
+    :param audio_path: Path to a mono PCM WAV file
+    :return: List of (start, end, raw_speaker_label) tuples, or None if unavailable
     """
+
     if not HUGGINGFACE_TOKEN:
         return None
 
@@ -244,13 +265,21 @@ def diarize_audio(audio_path):
             (turn.start, turn.end, label)
             for turn, _, label in diarization.itertracks(yield_label=True)
         ]
+
     except Exception:
         return None
 
 
 def assign_speakers(words, turns):
-    """Tag each word dict in-place with a 0-based "spk" index and return the
-    number of distinct speakers, based on diarization turns."""
+    """
+    Tag each word dict in-place with a 0-based "spk" index and return the
+    number of distinct speakers, based on diarization turns.
+
+    :param words: List of dicts with "s" (start time) and "w" (word) keys
+    :param turns: List of (start, end, raw_speaker_label) tuples
+    :return: Number of distinct speakers
+    """
+
     order_map = {}
     for _, _, label in turns:
         if label not in order_map:
@@ -291,6 +320,7 @@ def transcribe_note(note_id, audio_path):
                 "word_timestamps": True,
                 "verbose": False,
             }
+
             if note.subject == HINDI_SUBJECT:
                 transcribe_kwargs["language"] = "hi"
                 transcribe_kwargs["initial_prompt"] = HINDI_INITIAL_PROMPT
@@ -300,6 +330,7 @@ def transcribe_note(note_id, audio_path):
                 result = get_whisper_model().transcribe(
                     denoised_path, **transcribe_kwargs
                 )
+
             transcription = (result.get("text") or "").strip()
             words = [
                 {"s": word["start"], "w": word["word"]}
@@ -352,15 +383,21 @@ def transcribe_note(note_id, audio_path):
 
 
 def format_transcript_with_speakers(note):
-    """Render transcription_segments as "Speaker N: ..." lines per turn.
+    """
+    Render transcription_segments as "Speaker N: ..." lines per turn.
 
     Falls back to the plain transcript when there's no per-word speaker
     data (diarization disabled/unavailable), so the Ollama prompt still
     gets a usable transcript either way.
+
+    :param note: Note instance with transcription_segments and speakers_by_order()
+    :return: Formatted transcript string
     """
+
     words = (
         json.loads(note.transcription_segments) if note.transcription_segments else []
     )
+
     if not words or all(word.get("spk") is None for word in words):
         return note.transcription or ""
 
@@ -370,6 +407,7 @@ def format_transcript_with_speakers(note):
         speaker = speakers.get(spk)
         if speaker:
             return speaker.display_name or speaker.label
+
         return f"Speaker {spk + 1}" if spk is not None else "Unknown speaker"
 
     lines = []
@@ -382,6 +420,7 @@ def format_transcript_with_speakers(note):
                 lines.append(
                     f"{speaker_name(current_spk)}: {''.join(current_words).strip()}"
                 )
+
             current_spk = spk
             current_words = []
         current_words.append(word["w"])
@@ -419,6 +458,7 @@ def extract_key_points(note_id, transcript):
                 KEY_POINTS_PENDING,
                 error="Waiting for an internet connection to reach Ollama.",
             )
+
             threading.Timer(
                 KEY_POINTS_RETRY_SECONDS,
                 lambda: transcription_executor.submit(
@@ -474,12 +514,14 @@ def extract_key_points(note_id, transcript):
 
             try:
                 parsed = json.loads(content)
+
             except json.JSONDecodeError:
                 # Ollama sometimes emits backslashes that aren't valid JSON
                 # escapes (e.g. LaTeX-style "\(" ). Escape stray backslashes
                 # and retry instead of failing the whole extraction.
                 sanitized = re.sub(r'\\(?!["\\/bfnrtu])', r"\\\\", content)
                 parsed = json.loads(sanitized)
+
             title = (parsed.get("title") or "").strip()
             key_points = (parsed.get("key_points") or "").strip()
 
@@ -518,6 +560,7 @@ def enqueue_existing_transcriptions():
         audio_path = os.path.join(BASE_DIR, note.recording_path)
         if os.path.exists(audio_path):
             enqueue_transcription(note.id, audio_path)
+
         else:
             note.transcription_status = TRANSCRIPTION_FAILED
             note.transcription_error = "Audio file not found."

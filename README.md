@@ -5,6 +5,8 @@ A small Flask app for recording class notes from the browser microphone, transcr
 ## Features
 
 - Record audio directly in the browser.
+- Audio is recorded in chunks and uploaded in real-time to the server, ensuring that recordings are preserved even if the browser crashes or the page is refreshed.
+- Use a robust session-based chunking system that saves audio segments into unique session folders on the server.
 - Choose a subject before recording; subjects are managed in-app (add or delete via **Manage Subjects**) rather than hardcoded, and a note's subject can be edited afterwards.
 - Start and stop recordings manually.
 - Save recordings to the local `recordings/` folder.
