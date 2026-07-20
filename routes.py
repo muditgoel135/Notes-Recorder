@@ -1,6 +1,8 @@
 import os
 import re
+from datetime import datetime
 
+import requests
 from flask import (
     render_template,
     request,
@@ -12,7 +14,15 @@ from flask import (
 )
 
 from extensions import app, db
-from models import Note, Tag, Subject, Speaker, get_tag_descendant_ids
+from models import (
+    ChatMessage,
+    ChatSession,
+    Note,
+    Tag,
+    Subject,
+    Speaker,
+    get_tag_descendant_ids,
+)
 from notes_query import (
     build_notes_query,
     parse_notes_filters_from_request,
@@ -29,16 +39,160 @@ from recordings import (
     save_audio_file,
     save_recording_chunk,
 )
-from transcription import enqueue_transcription, extract_key_points
+from transcription import (
+    enqueue_transcription,
+    extract_key_points,
+    format_transcript_with_speakers,
+    is_internet_available,
+)
+from text_filters import render_markdown
 from config import (
     BASE_DIR,
     RECORDINGS_DIR,
     DEFAULT_PER_PAGE,
+    OLLAMA_API_KEY,
+    OLLAMA_CHAT_URL,
+    OLLAMA_MODEL,
     TRANSCRIPTION_PENDING,
     TRANSCRIPTION_COMPLETED,
     KEY_POINTS_PENDING,
 )
 from transcription import transcription_executor
+
+
+def serialize_chat_note(note, include_preview=True):
+    preview_source = note.key_points or note.transcription or ""
+    preview = preview_source.strip().replace("\r\n", "\n")
+    if len(preview) > 240:
+        preview = preview[:240].rstrip() + "..."
+
+    data = {
+        "id": note.id,
+        "title": note.title,
+        "subject": note.subject,
+        "date": note.date,
+        "start_time": note.start_time,
+        "end_time": note.end_time,
+        "tags": [tag.to_dict() for tag in note.tags],
+    }
+    if include_preview:
+        data["preview"] = preview
+    return data
+
+
+def serialize_chat_message(message):
+    data = {
+        "id": message.id,
+        "role": message.role,
+        "content": message.content,
+        "created_at": message.created_at.isoformat(),
+    }
+    if message.role == "assistant":
+        data["html"] = str(render_markdown(message.content))
+    return data
+
+
+def serialize_chat_session(session, include_messages=False):
+    data = {
+        "id": session.id,
+        "title": session.title or f"Chat {session.id}",
+        "created_at": session.created_at.isoformat(),
+        "updated_at": session.updated_at.isoformat(),
+        "notes": [
+            serialize_chat_note(note, include_preview=False) for note in session.notes
+        ],
+        "message_count": len(session.messages),
+    }
+    if include_messages:
+        data["messages"] = [
+            serialize_chat_message(message) for message in session.messages
+        ]
+    return data
+
+
+def transcript_context_for_note(note):
+    transcript = (
+        format_transcript_with_speakers(note) if note.speakers else note.transcription
+    )
+    parts = [
+        f"Recording ID: {note.id}",
+        f"Subject: {note.subject or 'Untitled'}",
+        f"Title: {note.title or 'No title'}",
+        f"Date/time: {note.date} {note.start_time or ''}-{note.end_time or ''}".strip(),
+    ]
+    if note.tags:
+        parts.append("Tags: " + ", ".join(tag.name for tag in note.tags))
+    if note.key_points:
+        parts.append(f"Key points:\n{note.key_points}")
+    parts.append(f"Transcript:\n{transcript or ''}")
+    return "\n".join(parts)
+
+
+def call_ollama_for_chat(session):
+    if not OLLAMA_API_KEY:
+        return None, ("OLLAMA_API_KEY is not configured.", 503)
+
+    if not is_internet_available():
+        return None, ("No internet connection available to reach Ollama.", 503)
+
+    context = "\n\n---\n\n".join(
+        transcript_context_for_note(note) for note in session.notes
+    )
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You answer questions about the user's selected class recordings. "
+                "Use only the supplied recording context and prior chat messages. "
+                "If the answer is not supported by the selected recordings, say so. "
+                "When useful, cite recordings by subject/title/date rather than by ID.\n\n"
+                f"Selected recording context:\n{context}"
+            ),
+        }
+    ]
+    messages.extend(
+        {"role": message.role, "content": message.content}
+        for message in session.messages
+        if message.role in {"user", "assistant"}
+    )
+
+    try:
+        response = requests.post(
+            OLLAMA_CHAT_URL,
+            headers={"Authorization": f"Bearer {OLLAMA_API_KEY}"},
+            json={
+                "model": OLLAMA_MODEL,
+                "messages": messages,
+                "stream": False,
+            },
+            timeout=120,
+        )
+        response.raise_for_status()
+    except (requests.ConnectionError, requests.Timeout) as exc:
+        return None, (str(exc) or "Could not reach Ollama.", 503)
+    except requests.HTTPError as exc:
+        detail = str(exc)
+        try:
+            detail = response.json().get("error") or detail
+        except (ValueError, AttributeError):
+            pass
+        return None, (detail, 502)
+    except requests.RequestException as exc:
+        return None, (str(exc) or "Ollama request failed.", 502)
+
+    try:
+        content = (response.json().get("message", {}).get("content", "") or "").strip()
+    except (ValueError, AttributeError):
+        return None, ("Ollama returned a malformed response.", 502)
+
+    if not content:
+        return None, ("Ollama returned an empty response.", 502)
+    return content, None
+
+
+@app.route("/chat")
+def chat():
+    return render_template("chat.html")
 
 
 @app.route("/")
@@ -115,6 +269,137 @@ def api_notes():
             "has_active_transcription": check_has_active_transcription(),
         }
     )
+
+
+@app.route("/api/chat/recordings")
+def api_chat_recordings():
+    filters = parse_notes_filters_from_request()
+    notes = (
+        build_notes_query(**filters)
+        .filter(Note.transcription_status == TRANSCRIPTION_COMPLETED)
+        .filter(Note.transcription.isnot(None))
+        .limit(100)
+        .all()
+    )
+    return jsonify({"recordings": [serialize_chat_note(note) for note in notes]})
+
+
+@app.route("/api/chat/sessions")
+def api_chat_sessions():
+    sessions = ChatSession.query.order_by(ChatSession.updated_at.desc()).all()
+    return jsonify(
+        {"sessions": [serialize_chat_session(session) for session in sessions]}
+    )
+
+
+@app.route("/api/chat/sessions/<int:session_id>")
+def api_chat_session(session_id):
+    session = ChatSession.query.get_or_404(session_id)
+    return jsonify({"session": serialize_chat_session(session, include_messages=True)})
+
+
+@app.route("/api/chat/sessions", methods=["POST"])
+def create_chat_session():
+    data = request.get_json(silent=True) or {}
+    note_ids = [
+        int(note_id)
+        for note_id in (data.get("note_ids") or [])
+        if str(note_id).isdigit()
+    ]
+    if not note_ids:
+        return jsonify({"error": "Choose at least one recording to chat about."}), 400
+
+    notes = (
+        Note.query.filter(Note.id.in_(note_ids))
+        .filter(Note.transcription_status == TRANSCRIPTION_COMPLETED)
+        .filter(Note.transcription.isnot(None))
+        .all()
+    )
+    found_ids = {note.id for note in notes}
+    if len(found_ids) != len(set(note_ids)):
+        return (
+            jsonify(
+                {"error": "All selected recordings must have completed transcripts."}
+            ),
+            400,
+        )
+
+    first_note = notes[0]
+    title = (data.get("title") or "").strip()
+    if not title:
+        title = first_note.title or first_note.subject or "Recording chat"
+        if len(notes) > 1:
+            title = f"{title} + {len(notes) - 1} more"
+
+    session = ChatSession(title=title[:200], notes=notes)
+    db.session.add(session)
+    db.session.commit()
+    return jsonify({"session": serialize_chat_session(session, include_messages=True)})
+
+
+@app.route("/api/chat/sessions/<int:session_id>/messages", methods=["POST"])
+def create_chat_message(session_id):
+    session = ChatSession.query.get_or_404(session_id)
+    data = request.get_json(silent=True) or {}
+    content = (data.get("message") or "").strip()
+    if not content:
+        return jsonify({"error": "Enter a message first."}), 400
+
+    transcript_ready_notes = [
+        note
+        for note in session.notes
+        if note.transcription_status == TRANSCRIPTION_COMPLETED and note.transcription
+    ]
+    if not transcript_ready_notes or len(transcript_ready_notes) != len(session.notes):
+        return (
+            jsonify(
+                {"error": "This chat has recordings without completed transcripts."}
+            ),
+            400,
+        )
+
+    user_message = ChatMessage(session=session, role="user", content=content)
+    session.updated_at = datetime.utcnow()
+    db.session.add(user_message)
+    db.session.commit()
+
+    answer, error = call_ollama_for_chat(session)
+    if error:
+        message, status_code = error
+        return (
+            jsonify(
+                {"error": message, "user_message": serialize_chat_message(user_message)}
+            ),
+            status_code,
+        )
+
+    assistant_message = ChatMessage(session=session, role="assistant", content=answer)
+    session.updated_at = datetime.utcnow()
+    db.session.add(assistant_message)
+    db.session.commit()
+
+    return jsonify(
+        {
+            "message": serialize_chat_message(assistant_message),
+            "user_message": serialize_chat_message(user_message),
+            "session": serialize_chat_session(session),
+            "model": OLLAMA_MODEL,
+        }
+    )
+
+
+@app.route("/api/chat/sessions/<int:session_id>/title", methods=["POST"])
+def update_chat_session_title(session_id):
+    session = ChatSession.query.get_or_404(session_id)
+    data = request.get_json(silent=True) or {}
+    title = (data.get("title") or "").strip()
+    if not title:
+        return jsonify({"error": "A title is required."}), 400
+
+    session.title = title[:200]
+    session.updated_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({"session": serialize_chat_session(session, include_messages=True)})
 
 
 @app.route("/save_recording", methods=["POST"])

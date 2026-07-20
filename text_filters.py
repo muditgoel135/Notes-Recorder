@@ -45,7 +45,10 @@ def render_markdown(text):
     if not text:
         return ""
     return Markup(
-        markdown.markdown(normalize_list_indentation(text), extensions=["sane_lists"])
+        markdown.markdown(
+            normalize_list_indentation(text),
+            extensions=["sane_lists", "tables"],
+        )
     )
 
 

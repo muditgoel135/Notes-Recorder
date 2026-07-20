@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat with Recordings</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='bootstrap-css/bootstrap.min.css') }}">
+</head>
+
+<body>
+    <div class="container-fluid py-4 px-4">
+        <div class="d-flex justify-content-between align-items-center gap-3 mb-3">
+            <div>
+                <h1 class="h3 mb-1">Chat with recordings</h1>
+                <div class="text-muted">Choose transcript-ready recordings, then ask questions using Ollama.</div>
+            </div>
+            <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">Back to recorder</a>
+        </div>
+
+        <div id="chat-filters-bar" class="row g-2 mb-3 align-items-end">
+            <div class="col-12 col-lg-3">
+                <label for="search-input" class="form-label small mb-1">Search</label>
+                <input type="search" id="search-input" class="form-control"
+                    placeholder="Search title, transcript, subject, key points...">
+            </div>
+            <div class="col-6 col-lg-2">
+                <label for="date-from-input" class="form-label small mb-1">Date from</label>
+                <input type="date" id="date-from-input" class="form-control">
+            </div>
+            <div class="col-6 col-lg-2">
+                <label for="date-to-input" class="form-label small mb-1">Date to</label>
+                <input type="date" id="date-to-input" class="form-control">
+            </div>
+            <div class="col-6 col-lg-1">
+                <label for="time-from-input" class="form-label small mb-1">Time from</label>
+                <input type="time" id="time-from-input" class="form-control">
+            </div>
+            <div class="col-6 col-lg-1">
+                <label for="time-to-input" class="form-label small mb-1">Time to</label>
+                <input type="time" id="time-to-input" class="form-control">
+            </div>
+            <div class="col-6 col-lg-1 dropdown">
+                <label class="form-label small mb-1 d-block">Tags</label>
+                <button class="btn btn-outline-secondary btn-sm dropdown-toggle w-100" type="button"
+                    data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                    Tags <span id="tag-filter-count" class="badge bg-secondary d-none">0</span>
+                </button>
+                <div class="dropdown-menu p-2 tag-filter-menu" id="filter-tag-tree"></div>
+            </div>
+            <div class="col-6 col-lg-1 dropdown">
+                <label class="form-label small mb-1 d-block">Subject</label>
+                <button class="btn btn-outline-secondary btn-sm dropdown-toggle w-100" type="button"
+                    data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                    Subject <span id="subject-filter-count" class="badge bg-secondary d-none">0</span>
+                </button>
+                <div class="dropdown-menu p-2 tag-filter-menu" id="filter-subject-list"></div>
+            </div>
+            <div class="col-12 col-lg-1">
+                <button id="clear-filters-btn" type="button" class="btn btn-outline-secondary btn-sm w-100">
+                    Clear
+                </button>
+            </div>
+        </div>
+
+        <div class="row g-3 chat-page-layout">
+            <aside class="col-12 col-xl-1">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div class="fw-semibold">Chats</div>
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="new-chat-btn">New</button>
+                </div>
+                <div id="chat-session-list" class="list-group chat-session-list"></div>
+            </aside>
+
+            <section class="col-12 col-xl-1">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div class="fw-semibold">Recordings</div>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="refresh-chat-recordings-btn">
+                        Refresh
+                    </button>
+                </div>
+                <div id="chat-recording-list" class="chat-recording-list"></div>
+                <button type="button" class="btn btn-primary btn-sm mt-3" id="create-chat-session-btn">
+                    Start chat
+                </button>
+                <div class="small text-danger mt-2 d-none" id="chat-picker-error"></div>
+            </section>
+
+            <main class="col-12 col-xl-6">
+                <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                    <div>
+                        <div class="fw-semibold" id="active-chat-title">No chat selected</div>
+                        <div class="small text-muted" id="active-chat-recordings"></div>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-secondary d-none" id="rename-chat-btn">
+                        Rename
+                    </button>
+                </div>
+                <div id="chat-messages" class="chat-messages mb-3"></div>
+                <form id="chat-message-form" class="d-flex gap-2">
+                    <textarea class="form-control" id="chat-message-input" rows="2"
+                        placeholder="Ask about the selected recordings..." disabled></textarea>
+                    <button type="submit" class="btn btn-primary" id="send-chat-message-btn" disabled>Send</button>
+                </form>
+                <div class="small text-danger mt-2 d-none" id="chat-message-error"></div>
+            </main>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='bootstrap-js/bootstrap.bundle.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='chat.js') }}"></script>
+</body>
+
+</html>

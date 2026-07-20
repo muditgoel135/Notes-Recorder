@@ -30,6 +30,32 @@ body.sync-enabled .transcript-word:hover {
     margin-top: 0.15rem;
 }
 
+.markdown-content table {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    margin: 0.75rem 0;
+    border-collapse: collapse;
+    font-size: 0.95rem;
+}
+
+.markdown-content th,
+.markdown-content td {
+    padding: 0.45rem 0.6rem;
+    border: 1px solid #dee2e6;
+    vertical-align: top;
+}
+
+.markdown-content th {
+    font-weight: 600;
+    background-color: #f1f3f5;
+}
+
+.markdown-content tr:nth-child(even) td {
+    background-color: #f8f9fa;
+}
+
 .markdown-content h1,
 .markdown-content h2,
 .markdown-content h3 {
@@ -112,4 +138,77 @@ ul.tag-tree {
     flex-wrap: wrap;
     align-items: center;
     gap: 0.35rem;
+}
+
+.chat-session-list,
+.chat-recording-list {
+    max-height: 420px;
+    overflow-y: auto;
+}
+
+.chat-recording-row {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.6rem;
+    padding: 0.6rem;
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    margin-bottom: 0.5rem;
+    cursor: pointer;
+}
+
+.chat-recording-row:hover {
+    background-color: #f8f9fa;
+}
+
+.chat-messages {
+    min-height: 320px;
+    max-height: 460px;
+    overflow-y: auto;
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    padding: 0.75rem;
+    background-color: #f8f9fa;
+}
+
+.chat-message {
+    white-space: pre-wrap;
+    padding: 0.65rem 0.75rem;
+    border-radius: 0.375rem;
+    margin-bottom: 0.75rem;
+    background-color: #fff;
+    border: 1px solid #dee2e6;
+}
+
+.chat-message .markdown-content {
+    white-space: normal;
+}
+
+.chat-message .markdown-content p,
+.chat-message .markdown-content ul,
+.chat-message .markdown-content ol {
+    margin-bottom: 0.5rem;
+}
+
+.chat-message .markdown-content>*:last-child {
+    margin-bottom: 0;
+}
+
+.chat-message-user {
+    background-color: #e7f1ff;
+    border-color: #b6d4fe;
+}
+
+.chat-message-assistant {
+    background-color: #fff;
+}
+
+.chat-page-layout .chat-session-list,
+.chat-page-layout .chat-recording-list,
+.chat-page-layout .chat-messages {
+    max-height: calc(100vh - 240px);
+}
+
+.chat-page-layout .chat-messages {
+    min-height: calc(100vh - 320px);
 }

@@ -1,4 +1,5 @@
 from collections import defaultdict
+from datetime import datetime
 
 from extensions import db
 from config import TRANSCRIPTION_PENDING, KEY_POINTS_PENDING
@@ -111,6 +112,50 @@ note_tags = db.Table(
     db.Column("tag_id", db.Integer, db.ForeignKey("tag.id"), primary_key=True),
 )
 
+chat_session_notes = db.Table(
+    "chat_session_notes",
+    db.Column(
+        "chat_session_id",
+        db.Integer,
+        db.ForeignKey("chat_session.id"),
+        primary_key=True,
+    ),
+    db.Column("note_id", db.Integer, db.ForeignKey("note.id"), primary_key=True),
+)
+
+
+class ChatSession(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(200), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+    notes = db.relationship(
+        "Note",
+        secondary=chat_session_notes,
+        backref=db.backref("chat_sessions", lazy="dynamic"),
+    )
+    messages = db.relationship(
+        "ChatMessage",
+        order_by="ChatMessage.created_at",
+        cascade="all, delete-orphan",
+        backref="session",
+    )
+
+
+class ChatMessage(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    chat_session_id = db.Column(
+        db.Integer, db.ForeignKey("chat_session.id"), nullable=False, index=True
+    )
+    role = db.Column(db.String(20), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
 
 class Tag(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -129,7 +174,13 @@ class Tag(db.Model):
 
 
 def get_tag_descendant_ids(root_ids):
-    """Return root_ids plus all descendant tag ids."""
+    """
+    Return root_ids plus all descendant tag ids.
+
+    :param root_ids: A list of tag ids to find descendants for.
+    :return: A set of tag ids including the root_ids and all their descendants.
+    """
+
     children_by_parent = defaultdict(list)
     for tag_id, parent_id in Tag.query.with_entities(Tag.id, Tag.parent_id).all():
         children_by_parent[parent_id].append(tag_id)

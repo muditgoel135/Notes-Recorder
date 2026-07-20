@@ -6,26 +6,28 @@ A small Flask app for recording class notes from the browser microphone, transcr
 
 - Record audio directly in the browser.
 - Audio is recorded in chunks and uploaded in real-time to the server, ensuring that recordings are preserved even if the browser crashes or the page is refreshed.
-- Use a robust session-based chunking system that saves audio segments into unique session folders on the server.
+- Use a robust session-based chunking system that saves audio segments into unique session folders on the server, supports reload recovery, and lets an in-progress recording be canceled.
 - Choose a subject before recording; subjects are managed in-app (add or delete via **Manage Subjects**) rather than hardcoded, and a note's subject can be edited afterwards.
 - Start and stop recordings manually.
 - Save recordings to the local `recordings/` folder.
-- Upload existing audio files.
+- Upload existing audio files; uploads are added under the `Uploaded` subject by default and can be edited afterwards.
 - Play saved recordings from the app.
 - Audio is denoised with ffmpeg before transcription to improve accuracy.
 - Automatic background transcription using OpenAI Whisper (runs fully offline, once the model is downloaded), with a live progress bar showing percent complete.
 - Speaker diarization: automatically detects and labels distinct speakers ("Speaker 1", "Speaker 2", ...) in the transcript, shown as color-coded badges. Speakers can be renamed per note (e.g. "Teacher"). Requires a Hugging Face token; falls back to an undifferentiated transcript if not configured.
 - Automatic title and key-points extraction from the transcript using Ollama's hosted API (requires internet; waits and retries automatically if offline). When diarization is available, key points are generated from the speaker-labeled transcript.
+- Chat with selected transcript-ready recordings using Ollama's hosted API, with saved chat sessions, renameable chat titles, and message history stored in the app database.
 - Inline editing of note title and key points.
 - Retry transcription or key-points extraction at any time, not just after a failure. Retrying transcription also re-runs key-points extraction on the new transcript.
 - Download a note's transcript (`.txt`) or key points (`.md`).
 - Click a word in the transcript to jump playback to that point in the audio, with the current word highlighted as it plays. A **Sync transcript with audio playback** checkbox toggles this behavior on or off (remembered across visits).
-- Hierarchical tags: organize notes with nested tags, each with a custom color, managed in-app via **Manage Tags** (add, edit, or add a subtag), and filter the notes list by tag.
+- Hierarchical tags: organize notes with nested tags, each with a custom color, managed in-app via **Manage Tags** (add, edit, delete, or add a subtag), and filter the notes list by tag. Filtering by a parent tag includes its subtags.
 - Search and filter notes by text, date range, time range, and subject.
+- Render markdown tables in generated key points and chat answers.
 - For notes recorded under the "Hindi" subject, transcription is tuned for Hindi speech (with English words/phrases transcribed in English) using a Hindi-specific prompt and language setting.
 - Paginated notes list.
 - Delete a note, which also removes its saved recording file.
-- Store recording and note metadata in SQLite.
+- Store recording, note, tag, speaker, subject, and chat metadata in SQLite.
 
 ## Tech Stack
 
@@ -38,7 +40,7 @@ A small Flask app for recording class notes from the browser microphone, transcr
 - ffmpeg (audio denoising)
 - OpenAI Whisper (speech-to-text)
 - pyannote.audio (speaker diarization)
-- Ollama API (title and key-points generation)
+- Ollama API (title generation, key-points generation, and chat)
 
 ## Project Structure
 
@@ -47,7 +49,7 @@ Notes-Recorder/
 |-- app.py             # entry point: wires everything together, starts the app
 |-- extensions.py       # Flask app + SQLAlchemy db instances
 |-- config.py           # environment-derived settings and constants
-|-- models.py           # Note, Speaker, Subject, Tag database models
+|-- models.py           # Note, Speaker, Subject, Tag, and chat database models
 |-- notes_query.py      # DB init/migration and notes list querying
 |-- recordings.py       # audio file storage helpers
 |-- transcription.py    # Whisper transcription, diarization, Ollama key points
@@ -56,11 +58,13 @@ Notes-Recorder/
 |-- requirements.txt
 |-- templates/
 |   |-- index.html
+|   |-- chat.html
 |   |-- _notes_list.html
 |   |-- _transcript.html
 |   `-- _transcript_macros.html
 |-- static/
 |   |-- app.js          # all client-side JS: recording, filters, tags, subjects, transcript sync
+|   |-- chat.js         # client-side JS for chat session and recording picker workflows
 |   |-- style.css
 |   `-- bootstrap-css/, bootstrap-js/  # vendored Bootstrap assets
 |-- recordings/
@@ -90,9 +94,9 @@ Optional environment variables (e.g. in a `.env` file):
 
 - `SECRET_KEY` — Flask session secret.
 - `WHISPER_MODEL` — Whisper model size to load (default `small`).
-- `OLLAMA_API_KEY` — API key for Ollama's hosted chat API. Required for title/key-points extraction; without it, key-points extraction fails for each note but transcription still works.
+- `OLLAMA_API_KEY` — API key for Ollama's hosted chat API. Required for title/key-points extraction and chatting with recordings; without it, transcription still works.
 - `KEY_POINTS_RETRY_SECONDS` — how often (in seconds) to retry key-points extraction while there is no internet connection (default `30`).
-- `OLLAMA_MODEL` — Ollama model used for key-points extraction (default `gpt-oss:20b`).
+- `OLLAMA_MODEL` — Ollama model used for key-points extraction and chat (default `gpt-oss:20b`).
 - `TRANSCRIBE_EXISTING_ON_STARTUP` — set to `false` to skip re-queuing any pending transcriptions/key-points on startup (default `true`).
 - `DEFAULT_PER_PAGE` — number of notes shown per page in the notes list (default `10`).
 - `HUGGINGFACE_TOKEN` — Hugging Face access token used for speaker diarization (`pyannote.audio`). Without it, transcripts still work but aren't split by speaker. To set one up:
@@ -105,6 +109,8 @@ Optional environment variables (e.g. in a `.env` file):
 ```powershell
 python app.py
 ```
+
+The built-in Flask server runs with debug mode disabled by default.
 
 Open:
 
@@ -120,14 +126,16 @@ http://127.0.0.1:5000/
 4. Click **Stop Recording** when you are done.
 5. The recording is saved and appears in the recordings list.
 6. Transcription and key-points extraction run in the background; the list updates automatically as they complete, showing a live progress bar while transcription is in progress.
-7. Edit a note's title, key points, or subject inline if needed. Use **Retry transcription** (next to **Show full transcript**) or **Retry key points** (next to **Show key points**) to redo either step at any time — including after a failure, or just to regenerate with an updated model.
+7. Edit a note's title, key points, tags, or subject inline if needed. Use **Retry transcription** (next to **Show full transcript**) or **Retry key points** (next to **Show key points**) to redo either step at any time — including after a failure, or just to regenerate with an updated model.
 8. Once transcription or key-points extraction complete, download them from the note's **Download transcript** / **Download key points** buttons.
 9. Click a word in the transcript to jump the audio to that point; the word being spoken is highlighted during playback.
 10. When diarization is configured, each speaker turn shows a colored badge (e.g. "Speaker 1"); click a badge to rename that speaker for the note (e.g. "Teacher").
-11. Assign hierarchical tags to a note and filter the notes list by tag. Use **Manage Tags** to create, edit (name/color), or nest tags as subtags.
+11. Assign hierarchical tags to a note and filter the notes list by tag. Use **Manage Tags** to create, edit (name/color), delete, or nest tags as subtags. Deleting a tag also deletes its subtags.
 12. Use **Manage Subjects** to add or delete subjects available when starting a recording.
 13. Filter the notes list by one or more subjects using the **Subject** dropdown.
-14. Click **Delete** on a note to remove it, along with its saved recording file.
+14. Click **Chat with Recordings** to start or reopen saved chats. The recording picker uses the current search/date/time/tag/subject filters and only includes recordings with completed transcripts.
+15. Select one or more recordings, click **Start chat** or send a first message to create the chat, then use **Rename** to update the saved chat title if needed.
+16. Click **Delete** on a note to remove it, along with its saved recording file.
 
 You can also upload existing `.wav`, `.mp3`, `.ogg`, `.webm`, `.m4a`, or `.mp4` audio files.
 
@@ -137,10 +145,14 @@ Use the search box and date/time filters above the notes list to find recordings
 
 - Browser microphone recording works on `localhost`/`127.0.0.1` and HTTPS pages.
 - The app records from the browser microphone, not the server machine's microphone.
+- While recording, the app warns before page unloads. If the page is refreshed anyway, it attempts to restore the active session from browser `localStorage` and continue uploading chunks after microphone access is allowed again.
+- WebM recordings are patched with duration metadata when possible so saved browser recordings report a useful playback length.
 - Saved recording files are ignored by Git through `recordings/` in `.gitignore`.
-- The app creates or updates its SQLite tables on startup, and seeds a default subject list (Math, Physics, Chemistry, Biology, English, Hindi, Individuals and Societies) the first time it runs with no subjects yet. Manage or replace these afterwards via **Manage Subjects**.
-- Transcription and key-points extraction run one at a time in a background worker; large backlogs process sequentially.
+- The app creates or updates its SQLite tables on startup, and seeds a default subject list (Math, Physics, Chemistry, Biology, English, Hindi, Individuals and Societies) the first time it runs with no subjects yet. Manage or replace these afterwards via **Manage Subjects**. Deleting a subject removes it from the picker; existing notes keep their stored subject text.
+- Transcription and key-points extraction run one at a time in a background worker; large backlogs process sequentially. On startup, pending or interrupted transcriptions/key-point jobs are re-queued unless `TRANSCRIBE_EXISTING_ON_STARTUP=false`.
 - The first transcription run downloads the selected Whisper model, which can take a while depending on model size and network speed.
 - The app can be used fully offline for recording and transcription. Key-points extraction needs internet access to reach Ollama; while offline it shows as "Extracting key points..." and retries automatically until a connection is available.
+- Chatting with recordings also requires internet access and `OLLAMA_API_KEY`; if a request fails, the user's message remains saved in the chat history.
 - Speaker diarization requires internet access (and a valid `HUGGINGFACE_TOKEN`) the first time it downloads the diarization model; after that it runs locally like Whisper. If diarization fails or isn't configured, transcription still completes normally, just without speaker labels.
+- Generated markdown is normalized before rendering so common LLM list-indentation mistakes are shown as lists instead of code blocks.
 - Key-points extraction tolerates minor JSON formatting mistakes in Ollama's response (e.g. stray backslashes) by attempting to repair and re-parse them before failing.

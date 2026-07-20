@@ -40,6 +40,9 @@
         </div>
 
         <div class="text-end mb-2">
+            <a href="{{ url_for('chat') }}" class="btn btn-outline-primary btn-sm">
+                Chat with Recordings
+            </a>
             <button type="button" class="btn btn-outline-primary btn-sm" id="manage-subjects-btn" data-bs-toggle="modal"
                 data-bs-target="#manage-subjects-modal">
                 Manage Subjects
@@ -51,7 +54,7 @@
         </div>
 
         <div id="filters-bar" class="row g-2 mb-3 align-items-end">
-            <div class="col-12 col-md-3">
+            <div class="col-12 col-md-4">
                 <label for="search-input" class="form-label small mb-1">Search</label>
                 <input type="search" id="search-input" class="form-control"
                     placeholder="Search title, transcript, subject, key points...">
