@@ -370,6 +370,9 @@ document.getElementById("recordings-list").addEventListener("click", async (even
     const editSubjectButton = event.target.closest(".edit-subject-btn");
     const cancelSubjectButton = event.target.closest(".cancel-subject-btn");
     const saveSubjectButton = event.target.closest(".save-subject-btn");
+    const editDatetimeButton = event.target.closest(".edit-datetime-btn");
+    const cancelDatetimeButton = event.target.closest(".cancel-datetime-btn");
+    const saveDatetimeButton = event.target.closest(".save-datetime-btn");
     const pageButton = event.target.closest("#prev-page-btn, #next-page-btn");
     const wordSpan = event.target.closest(".transcript-word");
     const speakerBadge = event.target.closest(".speaker-badge");
@@ -490,6 +493,44 @@ document.getElementById("recordings-list").addEventListener("click", async (even
             fetchAndRenderNotes(currentPage);
         } catch (error) {
             saveSubjectButton.disabled = false;
+            alert(error.message);
+        }
+        return;
+    }
+
+    if (editDatetimeButton) {
+        const noteId = editDatetimeButton.dataset.noteId;
+        document.querySelector(`.note-datetime-display[data-note-id="${noteId}"]`).classList.add("d-none");
+        document.querySelector(`.note-datetime-edit[data-note-id="${noteId}"]`).classList.remove("d-none");
+        return;
+    }
+
+    if (cancelDatetimeButton) {
+        const noteId = cancelDatetimeButton.dataset.noteId;
+        document.querySelector(`.note-datetime-edit[data-note-id="${noteId}"]`).classList.add("d-none");
+        document.querySelector(`.note-datetime-display[data-note-id="${noteId}"]`).classList.remove("d-none");
+        return;
+    }
+
+    if (saveDatetimeButton) {
+        const noteId = saveDatetimeButton.dataset.noteId;
+        const editRow = document.querySelector(`.note-datetime-edit[data-note-id="${noteId}"]`);
+        const date = editRow.querySelector(".note-date-input").value;
+        const startTime = editRow.querySelector(".note-start-time-input").value;
+        saveDatetimeButton.disabled = true;
+        try {
+            const response = await fetch(`/notes/${noteId}/datetime`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ date, start_time: startTime }),
+            });
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.error || "Could not save date/time.");
+            }
+            fetchAndRenderNotes(currentPage);
+        } catch (error) {
+            saveDatetimeButton.disabled = false;
             alert(error.message);
         }
         return;

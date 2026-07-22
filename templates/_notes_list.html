@@ -30,7 +30,35 @@
                         Cancel
                     </button>
                 </div>
-                <div class="text-muted small">{{ note.date }} {{ note.start_time }} - {{ note.end_time }}
+                <div class="d-flex align-items-center gap-2 note-datetime-display text-muted small mt-1"
+                    data-note-id="{{ note.id }}">
+                    <span>{{ note.date }} {{ note.start_time }} - {{ note.end_time }}</span>
+                    <button type="button" class="btn btn-link btn-sm p-0 edit-datetime-btn"
+                        data-note-id="{{ note.id }}">
+                        Edit date/time
+                    </button>
+                </div>
+                <div class="d-flex align-items-end gap-2 note-datetime-edit d-none mt-1 flex-wrap"
+                    data-note-id="{{ note.id }}">
+                    <div>
+                        <label class="form-label small mb-1" for="note-date-{{ note.id }}">Start date</label>
+                        <input type="date" id="note-date-{{ note.id }}"
+                            class="form-control form-control-sm note-date-input" value="{{ note.date }}">
+                    </div>
+                    <div>
+                        <label class="form-label small mb-1" for="note-start-time-{{ note.id }}">Start time</label>
+                        <input type="time" id="note-start-time-{{ note.id }}"
+                            class="form-control form-control-sm note-start-time-input"
+                            value="{{ note.start_time }}" step="1">
+                    </div>
+                    <button type="button" class="btn btn-sm btn-primary save-datetime-btn"
+                        data-note-id="{{ note.id }}">
+                        Save
+                    </button>
+                    <button type="button" class="btn btn-sm btn-secondary cancel-datetime-btn"
+                        data-note-id="{{ note.id }}">
+                        Cancel
+                    </button>
                 </div>
                 <div class="note-tags-row mt-1">
                     {% for tag in note.tags %}

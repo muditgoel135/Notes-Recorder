@@ -1,6 +1,6 @@
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import requests
 from flask import (
@@ -38,6 +38,7 @@ from recordings import (
     note_download_basename,
     save_audio_file,
     save_recording_chunk,
+    duration_seconds_from_times,
 )
 from transcription import (
     enqueue_transcription,
@@ -651,6 +652,55 @@ def update_note_subject(note_id):
     note.subject = subject[:100]
     db.session.commit()
     return jsonify({"subject": note.subject})
+
+
+def parse_note_date(value):
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_note_time(value):
+    value = (value or "").strip()
+    if re.match(r"^\d{2}:\d{2}$", value):
+        value = f"{value}:00"
+
+    try:
+        return datetime.strptime(value, "%H:%M:%S").time()
+    except (TypeError, ValueError):
+        return None
+
+
+@app.route("/notes/<int:note_id>/datetime", methods=["POST"])
+def update_note_datetime(note_id):
+    note = Note.query.get_or_404(note_id)
+    data = request.get_json(silent=True) or {}
+    new_date = parse_note_date((data.get("date") or "").strip())
+    new_start_time = parse_note_time(data.get("start_time"))
+
+    if not new_date or not new_start_time:
+        return jsonify({"error": "Enter a valid date and start time."}), 400
+
+    duration_seconds = duration_seconds_from_times(note.start_time, note.end_time)
+    if duration_seconds is None:
+        return jsonify({"error": "This note does not have a valid duration."}), 400
+
+    new_start = datetime.combine(new_date, new_start_time)
+    new_end = new_start + timedelta(seconds=duration_seconds)
+
+    note.date = new_date.strftime("%Y-%m-%d")
+    note.start_time = new_start.strftime("%H:%M:%S")
+    note.time = note.start_time
+    note.end_time = new_end.strftime("%H:%M:%S")
+    db.session.commit()
+    return jsonify(
+        {
+            "date": note.date,
+            "start_time": note.start_time,
+            "end_time": note.end_time,
+        }
+    )
 
 
 @app.route("/notes/<int:note_id>/speakers/<int:speaker_id>/rename", methods=["POST"])
