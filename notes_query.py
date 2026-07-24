@@ -40,6 +40,7 @@ def init_database():
         "end_time": "VARCHAR(8)",
         "subject": "VARCHAR(100)",
         "recording_path": "VARCHAR(200)",
+        "notes_html": "TEXT",
         "transcription": "TEXT",
         "transcription_segments": "TEXT",
         "transcription_status": f"VARCHAR(20) NOT NULL DEFAULT '{TRANSCRIPTION_PENDING}'",
@@ -48,6 +49,7 @@ def init_database():
         "title": "VARCHAR(200)",
         "key_points": "TEXT",
         "key_points_status": f"VARCHAR(20) NOT NULL DEFAULT '{KEY_POINTS_PENDING}'",
+        "key_points_generation": "INTEGER NOT NULL DEFAULT 0",
         "key_points_error": "TEXT",
     }
 
@@ -58,6 +60,16 @@ def init_database():
                     text(
                         f"ALTER TABLE note ADD COLUMN {column_name} {column_definition}"
                     )
+                )
+
+    if "recording_session" in inspector.get_table_names():
+        session_columns = {
+            column["name"] for column in inspector.get_columns("recording_session")
+        }
+        if "notes_html" not in session_columns:
+            with db.engine.begin() as connection:
+                connection.execute(
+                    text("ALTER TABLE recording_session ADD COLUMN notes_html TEXT")
                 )
 
 
@@ -80,6 +92,7 @@ def build_notes_query(
                 Note.transcription.ilike(like_pattern),
                 Note.subject.ilike(like_pattern),
                 Note.key_points.ilike(like_pattern),
+                Note.notes_html.ilike(like_pattern),
             )
         )
 

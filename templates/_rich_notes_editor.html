@@ -1,0 +1,71 @@
+{% macro editor(editor_id, content='', extra_classes='', data_attrs='') %}
+<div class="rich-notes-editor {{ extra_classes }}" data-rich-notes-editor {{ data_attrs | safe }}>
+    <div class="rich-notes-toolbar btn-toolbar gap-1 mb-2" role="toolbar" aria-label="Rich notes formatting">
+        <div class="btn-group btn-group-sm" role="group">
+            <button type="button" class="btn btn-outline-secondary rich-command" data-command="formatBlock"
+                data-value="h1">H1</button>
+            <button type="button" class="btn btn-outline-secondary rich-command" data-command="formatBlock"
+                data-value="h2">H2</button>
+            <button type="button" class="btn btn-outline-secondary rich-command" data-command="formatBlock"
+                data-value="h3">H3</button>
+            <button type="button" class="btn btn-outline-secondary rich-command" data-command="formatBlock"
+                data-value="p">P</button>
+        </div>
+        <div class="btn-group btn-group-sm" role="group">
+            <button type="button" class="btn btn-outline-secondary rich-command" data-command="bold">B</button>
+            <button type="button" class="btn btn-outline-secondary rich-command" data-command="italic">I</button>
+            <button type="button" class="btn btn-outline-secondary rich-command" data-command="underline">U</button>
+        </div>
+        <div class="btn-group btn-group-sm" role="group">
+            <button type="button" class="btn btn-outline-secondary rich-command"
+                data-command="insertUnorderedList">List</button>
+            <button type="button" class="btn btn-outline-secondary rich-command"
+                data-command="insertOrderedList">1.</button>
+            <button type="button" class="btn btn-outline-secondary rich-command" data-command="outdent">Out</button>
+            <button type="button" class="btn btn-outline-secondary rich-command" data-command="indent">In</button>
+        </div>
+        <div class="btn-group btn-group-sm" role="group">
+            <button type="button" class="btn btn-outline-secondary rich-link-btn">Link</button>
+            <button type="button" class="btn btn-outline-secondary rich-table-btn">Table</button>
+            <button type="button" class="btn btn-outline-secondary rich-image-btn">Image</button>
+        </div>
+        <div class="btn-group btn-group-sm" role="group" aria-label="Table editing">
+            <button type="button" class="btn btn-outline-secondary rich-table-command" data-table-command="add-row">
+                +Row
+            </button>
+            <button type="button" class="btn btn-outline-secondary rich-table-command" data-table-command="delete-row">
+                -Row
+            </button>
+            <button type="button" class="btn btn-outline-secondary rich-table-command" data-table-command="add-column">
+                +Col
+            </button>
+            <button type="button" class="btn btn-outline-secondary rich-table-command"
+                data-table-command="delete-column">
+                -Col
+            </button>
+            <button type="button" class="btn btn-outline-secondary rich-table-command"
+                data-table-command="merge-right">
+                Merge R
+            </button>
+            <button type="button" class="btn btn-outline-secondary rich-table-command"
+                data-table-command="merge-down">
+                Merge D
+            </button>
+            <button type="button" class="btn btn-outline-secondary rich-table-command" data-table-command="split-cell">
+                Split
+            </button>
+        </div>
+        <label class="rich-color-label" title="Text color">
+            <span class="visually-hidden">Text color</span>
+            <input type="color" class="rich-color-input" data-command="foreColor" value="#212529">
+        </label>
+        <label class="rich-color-label" title="Highlight color">
+            <span class="visually-hidden">Highlight color</span>
+            <input type="color" class="rich-color-input" data-command="hiliteColor" value="#fff3a0">
+        </label>
+        <input type="file" class="rich-image-input d-none" accept="image/png,image/jpeg,image/gif,image/webp">
+    </div>
+    <div id="{{ editor_id }}" class="rich-notes-surface" contenteditable="true" role="textbox"
+        aria-multiline="true">{{ content | rich_note }}</div>
+</div>
+{% endmacro %}

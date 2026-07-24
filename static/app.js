@@ -4,6 +4,9 @@ const startButton = document.getElementById("start-button");
 const stopButton = document.getElementById("stop-button");
 const cancelButton = document.getElementById("cancel-button");
 const statusBox = document.getElementById("recording-status");
+const activeNotesPanel = document.getElementById("active-notes-panel");
+const activeNotesSaveStatus = document.getElementById("active-notes-save-status");
+const activeNotesEditor = document.getElementById("active-recording-notes-editor");
 
 let mediaRecorder;
 let mediaStream;
@@ -17,6 +20,7 @@ let hasChunkUploadError = false;
 
 const ACTIVE_RECORDING_STORAGE_KEY = "activeRecordingSession";
 const RECORDING_CHUNK_INTERVAL_MS = 2000;
+const EMPTY_RICH_NOTE_HTML = "<p><br></p>";
 
 function setStatus(message, isError = false) {
     statusBox.textContent = message;
@@ -52,6 +56,328 @@ function getExtension(mimeType) {
     return "webm";
 }
 
+function getRichEditorSurface(wrapper) {
+    return wrapper ? wrapper.querySelector(".rich-notes-surface") : null;
+}
+
+function normalizeRichNoteHtml(html) {
+    const value = (html || "").trim();
+    return value && value !== EMPTY_RICH_NOTE_HTML ? value : "";
+}
+
+function focusRichEditor(editor) {
+    editor.focus();
+}
+
+function runRichCommand(wrapper, command, value = null) {
+    const editor = getRichEditorSurface(wrapper);
+    if (!editor) {
+        return;
+    }
+    focusRichEditor(editor);
+    document.execCommand(command, false, value);
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function insertHtmlAtCursor(editor, html) {
+    focusRichEditor(editor);
+    document.execCommand("insertHTML", false, html);
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function clampInteger(value, min, max, fallback) {
+    const number = Number.parseInt(value, 10);
+    if (Number.isNaN(number)) {
+        return fallback;
+    }
+    return Math.max(min, Math.min(max, number));
+}
+
+function promptTableDimension(label, fallback, min, max) {
+    const value = prompt(`${label}:`, String(fallback));
+    if (value === null) {
+        return null;
+    }
+    return clampInteger(value, min, max, fallback);
+}
+
+function buildTableHtml(rows, columns) {
+    const headerCells = Array.from({ length: columns }, () => "<th>Header</th>").join("");
+    const bodyRows = Array.from({ length: Math.max(0, rows - 1) }, () => {
+        const cells = Array.from({ length: columns }, () => "<td>Cell</td>").join("");
+        return `<tr>${cells}</tr>`;
+    }).join("");
+    return `<table><tbody><tr>${headerCells}</tr>${bodyRows}</tbody></table><p><br></p>`;
+}
+
+function closestElement(node, selector, boundary) {
+    let current = node && node.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
+    while (current && current !== boundary) {
+        if (current.matches(selector)) {
+            return current;
+        }
+        current = current.parentElement;
+    }
+    return current && current.matches(selector) ? current : null;
+}
+
+function getSelectedTableCell(wrapper) {
+    const editor = getRichEditorSurface(wrapper);
+    const selection = window.getSelection();
+    if (!editor || !selection || selection.rangeCount === 0) {
+        return null;
+    }
+
+    const node = selection.anchorNode || selection.getRangeAt(0).startContainer;
+    const cell = closestElement(node, "td, th", editor);
+    return cell && editor.contains(cell) ? cell : null;
+}
+
+function createTableCell(tagName, html = "Cell") {
+    const cell = document.createElement(tagName);
+    cell.innerHTML = html;
+    return cell;
+}
+
+function getTableColumnCount(table) {
+    return Math.max(
+        1,
+        ...Array.from(table.rows).map((row) =>
+            Array.from(row.cells).reduce((total, cell) => total + (cell.colSpan || 1), 0)
+        )
+    );
+}
+
+function getVisualColumnIndex(cell) {
+    let index = 0;
+    let current = cell.previousElementSibling;
+    while (current) {
+        index += current.colSpan || 1;
+        current = current.previousElementSibling;
+    }
+    return index;
+}
+
+function getCellAtVisualColumn(row, columnIndex) {
+    let index = 0;
+    for (const cell of row.cells) {
+        const span = cell.colSpan || 1;
+        if (columnIndex >= index && columnIndex < index + span) {
+            return cell;
+        }
+        index += span;
+    }
+    return null;
+}
+
+function insertTableRow(cell) {
+    const row = cell.closest("tr");
+    const table = cell.closest("table");
+    if (!row || !table) {
+        return;
+    }
+
+    const newRow = table.insertRow(row.rowIndex + 1);
+    const columnCount = getTableColumnCount(table);
+    for (let index = 0; index < columnCount; index += 1) {
+        newRow.appendChild(createTableCell("td"));
+    }
+}
+
+function deleteTableRow(cell) {
+    const row = cell.closest("tr");
+    const table = cell.closest("table");
+    if (!row || !table) {
+        return;
+    }
+
+    if (table.rows.length <= 1) {
+        table.remove();
+        return;
+    }
+    row.remove();
+}
+
+function insertTableColumn(cell) {
+    const table = cell.closest("table");
+    if (!table) {
+        return;
+    }
+
+    const insertAfter = getVisualColumnIndex(cell) + (cell.colSpan || 1) - 1;
+    Array.from(table.rows).forEach((row) => {
+        const existingCell = getCellAtVisualColumn(row, insertAfter);
+        const tagName = row.rowIndex === 0 ? "th" : "td";
+        const newCell = createTableCell(tagName, row.rowIndex === 0 ? "Header" : "Cell");
+        if (existingCell && existingCell.parentElement === row) {
+            existingCell.after(newCell);
+        } else {
+            row.appendChild(newCell);
+        }
+    });
+}
+
+function deleteTableColumn(cell) {
+    const table = cell.closest("table");
+    if (!table) {
+        return;
+    }
+
+    const columnIndex = getVisualColumnIndex(cell);
+    Array.from(table.rows).forEach((row) => {
+        const target = getCellAtVisualColumn(row, columnIndex);
+        if (!target) {
+            return;
+        }
+        if ((target.colSpan || 1) > 1) {
+            target.colSpan -= 1;
+        } else {
+            target.remove();
+        }
+    });
+
+    if (!Array.from(table.rows).some((row) => row.cells.length > 0)) {
+        table.remove();
+    }
+}
+
+function mergeTableCellRight(cell) {
+    const nextCell = cell.nextElementSibling;
+    if (!nextCell || !["TD", "TH"].includes(nextCell.tagName)) {
+        alert("Select a cell with another cell to its right.");
+        return;
+    }
+
+    cell.colSpan = (cell.colSpan || 1) + (nextCell.colSpan || 1);
+    cell.innerHTML = `${cell.innerHTML}<br>${nextCell.innerHTML}`;
+    nextCell.remove();
+}
+
+function mergeTableCellDown(cell) {
+    const row = cell.closest("tr");
+    const nextRow = row ? row.nextElementSibling : null;
+    if (!row || !nextRow) {
+        alert("Select a cell with another cell below it.");
+        return;
+    }
+
+    const belowCell = getCellAtVisualColumn(nextRow, getVisualColumnIndex(cell));
+    if (!belowCell || belowCell.colSpan !== cell.colSpan) {
+        alert("The cell below must align with the selected cell.");
+        return;
+    }
+
+    cell.rowSpan = (cell.rowSpan || 1) + (belowCell.rowSpan || 1);
+    cell.innerHTML = `${cell.innerHTML}<br>${belowCell.innerHTML}`;
+    belowCell.remove();
+}
+
+function splitTableCell(cell) {
+    const row = cell.closest("tr");
+    if (!row) {
+        return;
+    }
+
+    const colSpan = cell.colSpan || 1;
+    const rowSpan = cell.rowSpan || 1;
+    if (colSpan === 1 && rowSpan === 1) {
+        alert("This cell is not merged.");
+        return;
+    }
+
+    cell.colSpan = 1;
+    cell.rowSpan = 1;
+    for (let index = 1; index < colSpan; index += 1) {
+        cell.after(createTableCell(cell.tagName.toLowerCase(), "&nbsp;"));
+    }
+    if (rowSpan > 1) {
+        let targetRow = row.nextElementSibling;
+        for (let rowOffset = 1; rowOffset < rowSpan && targetRow; rowOffset += 1) {
+            targetRow.insertBefore(createTableCell("td", "&nbsp;"), targetRow.cells[cell.cellIndex] || null);
+            targetRow = targetRow.nextElementSibling;
+        }
+    }
+}
+
+function runTableCommand(wrapper, command) {
+    const cell = getSelectedTableCell(wrapper);
+    if (!cell) {
+        alert("Place the cursor inside a table cell first.");
+        return;
+    }
+
+    if (command === "add-row") {
+        insertTableRow(cell);
+    } else if (command === "delete-row") {
+        deleteTableRow(cell);
+    } else if (command === "add-column") {
+        insertTableColumn(cell);
+    } else if (command === "delete-column") {
+        deleteTableColumn(cell);
+    } else if (command === "merge-right") {
+        mergeTableCellRight(cell);
+    } else if (command === "merge-down") {
+        mergeTableCellDown(cell);
+    } else if (command === "split-cell") {
+        splitTableCell(cell);
+    }
+
+    const editor = getRichEditorSurface(wrapper);
+    if (editor) {
+        editor.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+}
+
+async function uploadRichNoteImage(file) {
+    const formData = new FormData();
+    formData.append("image", file);
+    const response = await fetch("/api/note_images", {
+        method: "POST",
+        body: formData,
+    });
+    if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "Could not upload image.");
+    }
+    return response.json();
+}
+
+function setActiveNotesVisible(visible) {
+    activeNotesPanel.classList.toggle("d-none", !visible);
+}
+
+function setActiveNotesHtml(html) {
+    activeNotesEditor.innerHTML = html || "";
+}
+
+async function saveActiveRecordingNotesNow() {
+    if (!activeRecordingSession) {
+        return;
+    }
+    const notesHtml = normalizeRichNoteHtml(activeNotesEditor.innerHTML);
+    activeRecordingSession.notesHtml = notesHtml;
+    saveActiveRecordingSession();
+    activeNotesSaveStatus.textContent = "Saving...";
+    const response = await fetch(`/api/recording_sessions/${getActiveSessionKey()}/notes`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes_html: notesHtml }),
+    });
+    if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        activeNotesSaveStatus.textContent = "Save failed";
+        throw new Error(data.error || "Could not save notes.");
+    }
+    const data = await response.json();
+    activeRecordingSession.notesHtml = data.notes_html || "";
+    saveActiveRecordingSession();
+    activeNotesSaveStatus.textContent = "Saved";
+}
+
+const debouncedSaveActiveRecordingNotes = debounce(() => {
+    saveActiveRecordingNotesNow().catch(() => {});
+}, 600);
+
 async function uploadRecording(blob, extension) {
     const endTime = new Date();
     const formData = new FormData();
@@ -80,6 +406,9 @@ function saveActiveRecordingSession() {
 function clearActiveRecordingSession() {
     activeRecordingSession = null;
     localStorage.removeItem(ACTIVE_RECORDING_STORAGE_KEY);
+    setActiveNotesVisible(false);
+    setActiveNotesHtml("");
+    activeNotesSaveStatus.textContent = "";
 }
 
 function loadActiveRecordingSession() {
@@ -137,6 +466,7 @@ async function createRecordingSession(mimeType, extension) {
         startTime: data.session.start_time,
         mimeType: data.session.mime_type || mimeType,
         extension: data.session.extension || extension,
+        notesHtml: data.session.notes_html || "",
         nextSegmentIndex: 0,
     };
 }
@@ -187,6 +517,7 @@ async function waitForPendingChunkUploads() {
 }
 
 async function finishRecordingSession() {
+    await saveActiveRecordingNotesNow();
     const response = await fetch(`/api/recording_sessions/${getActiveSessionKey()}/finish`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -257,6 +588,8 @@ async function startRecorderForActiveSession(isRecovered = false) {
 
     mediaRecorder.start(RECORDING_CHUNK_INTERVAL_MS);
     setRecordingControls(true);
+    setActiveNotesHtml(activeRecordingSession.notesHtml || "");
+    setActiveNotesVisible(true);
     setStatus(isRecovered ? "Recording resumed after reload..." : "Recording...");
 }
 
@@ -349,7 +682,10 @@ async function restoreActiveRecordingIfNeeded() {
             return;
         }
 
-        activeRecordingSession = storedSession;
+        activeRecordingSession = {
+            ...storedSession,
+            notesHtml: data.session.notes_html || storedSession.notesHtml || "",
+        };
         startForm.querySelectorAll("input[name='subject']").forEach((input) => {
             input.checked = input.value === storedSession.subject;
         });
@@ -362,10 +698,111 @@ async function restoreActiveRecordingIfNeeded() {
     }
 }
 
+activeNotesEditor.addEventListener("input", () => {
+    if (!activeRecordingSession) {
+        return;
+    }
+    activeRecordingSession.notesHtml = normalizeRichNoteHtml(activeNotesEditor.innerHTML);
+    saveActiveRecordingSession();
+    activeNotesSaveStatus.textContent = "Unsaved";
+    debouncedSaveActiveRecordingNotes();
+});
+
+document.addEventListener("click", async (event) => {
+    const commandButton = event.target.closest(".rich-command");
+    const linkButton = event.target.closest(".rich-link-btn");
+    const tableButton = event.target.closest(".rich-table-btn");
+    const tableCommandButton = event.target.closest(".rich-table-command");
+    const imageButton = event.target.closest(".rich-image-btn");
+
+    if (tableCommandButton) {
+        runTableCommand(
+            tableCommandButton.closest("[data-rich-notes-editor]"),
+            tableCommandButton.dataset.tableCommand
+        );
+        return;
+    }
+
+    if (commandButton) {
+        runRichCommand(
+            commandButton.closest("[data-rich-notes-editor]"),
+            commandButton.dataset.command,
+            commandButton.dataset.value || null
+        );
+        return;
+    }
+
+    if (linkButton) {
+        const wrapper = linkButton.closest("[data-rich-notes-editor]");
+        const url = prompt("Link URL:");
+        if (url && url.trim()) {
+            runRichCommand(wrapper, "createLink", url.trim());
+        }
+        return;
+    }
+
+    if (tableButton) {
+        const editor = getRichEditorSurface(tableButton.closest("[data-rich-notes-editor]"));
+        if (editor) {
+            const rows = promptTableDimension("Rows", 3, 1, 20);
+            if (rows === null) {
+                return;
+            }
+            const columns = promptTableDimension("Columns", 3, 1, 10);
+            if (columns === null) {
+                return;
+            }
+            insertHtmlAtCursor(editor, buildTableHtml(rows, columns));
+        }
+        return;
+    }
+
+    if (imageButton) {
+        const input = imageButton.closest("[data-rich-notes-editor]").querySelector(".rich-image-input");
+        input.click();
+    }
+});
+
+document.addEventListener("mousedown", (event) => {
+    if (event.target.closest(".rich-notes-toolbar button")) {
+        event.preventDefault();
+    }
+});
+
+document.addEventListener("change", async (event) => {
+    const colorInput = event.target.closest(".rich-color-input");
+    const imageInput = event.target.closest(".rich-image-input");
+
+    if (colorInput) {
+        runRichCommand(
+            colorInput.closest("[data-rich-notes-editor]"),
+            colorInput.dataset.command,
+            colorInput.value
+        );
+        return;
+    }
+
+    if (imageInput && imageInput.files.length) {
+        const wrapper = imageInput.closest("[data-rich-notes-editor]");
+        const editor = getRichEditorSurface(wrapper);
+        try {
+            const data = await uploadRichNoteImage(imageInput.files[0]);
+            insertHtmlAtCursor(editor, `<img src="${data.url}" alt="">`);
+        } catch (error) {
+            alert(error.message);
+        } finally {
+            imageInput.value = "";
+        }
+    }
+});
+
 document.getElementById("recordings-list").addEventListener("click", async (event) => {
     const editButton = event.target.closest(".edit-note-btn");
     const cancelButton = event.target.closest(".cancel-note-btn");
     const saveButton = event.target.closest(".save-note-btn");
+    const editRichNotesButton = event.target.closest(".edit-rich-notes-btn");
+    const cancelRichNotesButton = event.target.closest(".cancel-rich-notes-btn");
+    const saveRichNotesButton = event.target.closest(".save-rich-notes-btn");
     const editTagsButton = event.target.closest(".edit-tags-btn");
     const editSubjectButton = event.target.closest(".edit-subject-btn");
     const cancelSubjectButton = event.target.closest(".cancel-subject-btn");
@@ -554,6 +991,53 @@ document.getElementById("recordings-list").addEventListener("click", async (even
         return;
     }
 
+    if (editRichNotesButton) {
+        const noteId = editRichNotesButton.dataset.noteId;
+        document.querySelector(`.note-rich-notes-display[data-note-id="${noteId}"]`).classList.add("d-none");
+        document.querySelector(`.note-rich-notes-edit[data-note-id="${noteId}"]`).classList.remove("d-none");
+        return;
+    }
+
+    if (cancelRichNotesButton) {
+        const form = cancelRichNotesButton.closest(".note-rich-notes-edit");
+        const noteId = form.dataset.noteId;
+        const display = document.querySelector(`.note-rich-notes-display[data-note-id="${noteId}"]`);
+        const content = display.querySelector(".rich-notes-content");
+        form.querySelector(".rich-notes-surface").innerHTML = content ? content.innerHTML : "";
+        form.classList.add("d-none");
+        display.classList.remove("d-none");
+        return;
+    }
+
+    if (saveRichNotesButton) {
+        const noteId = saveRichNotesButton.dataset.noteId;
+        const form = document.querySelector(`.note-rich-notes-edit[data-note-id="${noteId}"]`);
+        const editor = form.querySelector(".rich-notes-surface");
+        const errorBox = form.querySelector(".rich-notes-edit-error");
+        errorBox.classList.add("d-none");
+        saveRichNotesButton.disabled = true;
+
+        try {
+            const response = await fetch(`/notes/${noteId}/notes`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ notes_html: normalizeRichNoteHtml(editor.innerHTML) }),
+            });
+
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.error || "Could not save notes.");
+            }
+
+            fetchAndRenderNotes(currentPage);
+        } catch (error) {
+            errorBox.textContent = error.message;
+            errorBox.classList.remove("d-none");
+            saveRichNotesButton.disabled = false;
+        }
+        return;
+    }
+
     if (editButton) {
         const noteId = editButton.dataset.noteId;
         document.querySelector(`.note-display[data-note-id="${noteId}"]`).classList.add("d-none");
@@ -693,6 +1177,44 @@ function restoreOpenCollapses(ids) {
     });
 }
 
+function snapshotRichNotesEdits() {
+    return Array.from(document.querySelectorAll(".note-rich-notes-edit:not(.d-none)"))
+        .map((form) => {
+            const editor = form.querySelector(".rich-notes-surface");
+            const activeElement = document.activeElement;
+            return {
+                noteId: form.dataset.noteId,
+                html: editor ? editor.innerHTML : "",
+                wasFocused: Boolean(editor && editor.contains(activeElement)),
+            };
+        })
+        .filter((snapshot) => snapshot.noteId);
+}
+
+function restoreRichNotesEdits(snapshots) {
+    snapshots.forEach(({ noteId, html, wasFocused }) => {
+        const display = document.querySelector(`.note-rich-notes-display[data-note-id="${noteId}"]`);
+        const form = document.querySelector(`.note-rich-notes-edit[data-note-id="${noteId}"]`);
+        if (!display || !form) {
+            return;
+        }
+
+        const editor = form.querySelector(".rich-notes-surface");
+        display.classList.add("d-none");
+        form.classList.remove("d-none");
+        if (editor) {
+            editor.innerHTML = html;
+            if (wasFocused) {
+                editor.focus();
+            }
+        }
+    });
+}
+
+function hasOpenRichNotesEdit() {
+    return Boolean(document.querySelector(".note-rich-notes-edit:not(.d-none)"));
+}
+
 function applyDynamicNoteStyles(root = document) {
     root.querySelectorAll(".tag-badge[data-color], .speaker-badge[data-color]").forEach((badge) => {
         badge.style.backgroundColor = badge.dataset.color;
@@ -725,7 +1247,13 @@ function schedulePolling(shouldPoll) {
         pollTimer = null;
     }
     if (shouldPoll) {
-        pollTimer = setTimeout(() => fetchAndRenderNotes(currentPage), 10000);
+        pollTimer = setTimeout(() => {
+            if (hasOpenRichNotesEdit()) {
+                schedulePolling(true);
+                return;
+            }
+            fetchAndRenderNotes(currentPage);
+        }, 10000);
     }
 }
 
@@ -749,11 +1277,13 @@ async function fetchAndRenderNotes(page = 1) {
     currentPage = data.page;
     const playbackSnapshots = snapshotPlayback();
     const openCollapseIds = snapshotOpenCollapses();
+    const richNotesEditSnapshots = snapshotRichNotesEdits();
     document.getElementById("recordings-list").innerHTML = data.html;
     bindAudioSync();
     applyDynamicNoteStyles(document.getElementById("recordings-list"));
     restorePlayback(playbackSnapshots);
     restoreOpenCollapses(openCollapseIds);
+    restoreRichNotesEdits(richNotesEditSnapshots);
     schedulePolling(data.has_active_transcription);
 }
 

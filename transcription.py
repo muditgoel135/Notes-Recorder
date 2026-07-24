@@ -15,6 +15,7 @@ import requests
 
 from extensions import app, db
 from models import Note, Speaker, SPEAKER_COLOR_PALETTE
+from text_filters import rich_note_html_to_text
 from config import (
     BASE_DIR,
     WHISPER_MODEL_NAME,
@@ -148,9 +149,14 @@ def track_whisper_progress(note_id):
         whisper_transcribe_module.tqdm = original_tqdm_module
 
 
-def update_key_points_status(note_id, status, title=None, key_points=None, error=None):
+def update_key_points_status(
+    note_id, status, title=None, key_points=None, error=None, generation=None
+):
     note = db.session.get(Note, note_id)
     if not note:
+        return None
+
+    if generation is not None and note.key_points_generation != generation:
         return None
 
     note.key_points_status = status
@@ -379,7 +385,12 @@ def transcribe_note(note_id, audio_path):
             if denoised_path != audio_path and os.path.exists(denoised_path):
                 os.remove(denoised_path)
 
-        extract_key_points(note_id, transcription)
+        note = db.session.get(Note, note_id)
+        extract_key_points(
+            note_id,
+            transcription,
+            note.key_points_generation if note else 0,
+        )
 
 
 def format_transcript_with_speakers(note):
@@ -431,24 +442,43 @@ def format_transcript_with_speakers(note):
     return "\n".join(lines)
 
 
-def extract_key_points(note_id, transcript):
+def is_key_points_generation_current(note_id, generation):
+    note = db.session.get(Note, note_id)
+    return bool(note and note.key_points_generation == generation)
+
+
+def extract_key_points(note_id, transcript, generation=None):
     with app.app_context():
+        note = db.session.get(Note, note_id)
+        if not note:
+            return
+
+        if generation is None:
+            generation = note.key_points_generation or 0
+
+        if note.key_points_generation != generation:
+            return
+
         if not transcript:
             update_key_points_status(
-                note_id, KEY_POINTS_FAILED, error="No transcript to summarize."
+                note_id,
+                KEY_POINTS_FAILED,
+                error="No transcript to summarize.",
+                generation=generation,
             )
             return
 
-        note = db.session.get(Note, note_id)
         prompt_transcript = (
             format_transcript_with_speakers(note) if note else transcript
         )
+        user_notes = rich_note_html_to_text(note.notes_html)
 
         if not OLLAMA_API_KEY:
             update_key_points_status(
                 note_id,
                 KEY_POINTS_FAILED,
                 error="OLLAMA_API_KEY is not configured.",
+                generation=generation,
             )
             return
 
@@ -457,18 +487,25 @@ def extract_key_points(note_id, transcript):
                 note_id,
                 KEY_POINTS_PENDING,
                 error="Waiting for an internet connection to reach Ollama.",
+                generation=generation,
             )
 
             threading.Timer(
                 KEY_POINTS_RETRY_SECONDS,
                 lambda: transcription_executor.submit(
-                    extract_key_points, note_id, transcript
+                    extract_key_points, note_id, transcript, generation
                 ),
             ).start()
             return
 
         try:
-            update_key_points_status(note_id, KEY_POINTS_PROCESSING)
+            update_key_points_status(
+                note_id, KEY_POINTS_PROCESSING, generation=generation
+            )
+            context_parts = []
+            if user_notes:
+                context_parts.append(f"User notes:\n{user_notes}")
+            context_parts.append(f"Transcript:\n{prompt_transcript}")
             response = requests.post(
                 OLLAMA_CHAT_URL,
                 headers={"Authorization": f"Bearer {OLLAMA_API_KEY}"},
@@ -493,8 +530,10 @@ def extract_key_points(note_id, transcript):
                                 "bullets under each heading. Nested bullets must be "
                                 "indented by exactly 4 spaces per level (required "
                                 "for the list to render as nested). Bold with "
-                                "**text** where useful. No preamble or closing "
-                                f"remarks.\n\nTranscript:\n{prompt_transcript}"
+                                "**text** where useful. Treat the user's notes as "
+                                "important context that may clarify, correct, or "
+                                "prioritize parts of the transcript. No preamble or "
+                                f"closing remarks.\n\n{chr(10).join(context_parts)}"
                             ),
                         }
                     ],
@@ -528,19 +567,28 @@ def extract_key_points(note_id, transcript):
             if not key_points:
                 raise ValueError("Ollama returned no key points.")
 
+            if not is_key_points_generation_current(note_id, generation):
+                return
+
             update_key_points_status(
                 note_id,
                 KEY_POINTS_COMPLETED,
                 title=title[:200] or None,
                 key_points=key_points,
                 error=None,
+                generation=generation,
             )
 
         except Exception as exc:
             db.session.rollback()
+            if not is_key_points_generation_current(note_id, generation):
+                return
             error_message = str(exc).strip() or exc.__class__.__name__
             update_key_points_status(
-                note_id, KEY_POINTS_FAILED, error=error_message[:1000]
+                note_id,
+                KEY_POINTS_FAILED,
+                error=error_message[:1000],
+                generation=generation,
             )
 
 
@@ -575,4 +623,9 @@ def enqueue_existing_key_points():
     ).all()
 
     for note in notes:
-        transcription_executor.submit(extract_key_points, note.id, note.transcription)
+        transcription_executor.submit(
+            extract_key_points,
+            note.id,
+            note.transcription,
+            note.key_points_generation or 0,
+        )

@@ -1,5 +1,6 @@
 import os
 import re
+import uuid
 from datetime import datetime, timedelta
 
 import requests
@@ -12,6 +13,7 @@ from flask import (
     send_from_directory,
     Response,
 )
+from werkzeug.utils import secure_filename
 
 from extensions import app, db
 from models import (
@@ -46,23 +48,28 @@ from transcription import (
     format_transcript_with_speakers,
     is_internet_available,
 )
-from text_filters import render_markdown
+from text_filters import render_markdown, rich_note_html_to_text, sanitize_rich_note_html
 from config import (
     BASE_DIR,
+    NOTE_IMAGES_DIR,
     RECORDINGS_DIR,
     DEFAULT_PER_PAGE,
     OLLAMA_API_KEY,
     OLLAMA_CHAT_URL,
     OLLAMA_MODEL,
     TRANSCRIPTION_PENDING,
+    TRANSCRIPTION_PROCESSING,
     TRANSCRIPTION_COMPLETED,
     KEY_POINTS_PENDING,
+    KEY_POINTS_FAILED,
 )
 from transcription import transcription_executor
 
 
 def serialize_chat_note(note, include_preview=True):
-    preview_source = note.key_points or note.transcription or ""
+    preview_source = (
+        note.key_points or rich_note_html_to_text(note.notes_html) or note.transcription or ""
+    )
     preview = preview_source.strip().replace("\r\n", "\n")
     if len(preview) > 240:
         preview = preview[:240].rstrip() + "..."
@@ -123,6 +130,9 @@ def transcript_context_for_note(note):
     ]
     if note.tags:
         parts.append("Tags: " + ", ".join(tag.name for tag in note.tags))
+    user_notes = rich_note_html_to_text(note.notes_html)
+    if user_notes:
+        parts.append(f"User notes:\n{user_notes}")
     if note.key_points:
         parts.append(f"Key points:\n{note.key_points}")
     parts.append(f"Transcript:\n{transcript or ''}")
@@ -445,6 +455,20 @@ def get_recording_session_route(session_key):
     return jsonify({"session": session.to_dict()})
 
 
+@app.route("/api/recording_sessions/<session_key>/notes", methods=["PATCH"])
+def update_recording_session_notes(session_key):
+    session = get_session_by_key(session_key)
+    if not session:
+        return jsonify({"error": "Recording session was not found."}), 404
+    if session.status != ACTIVE_RECORDING_STATUS:
+        return jsonify({"error": "Recording session is not active."}), 400
+
+    data = request.get_json(silent=True) or {}
+    session.notes_html = sanitize_rich_note_html(data.get("notes_html"))
+    db.session.commit()
+    return jsonify({"notes_html": session.notes_html or ""})
+
+
 @app.route("/api/recording_sessions/<session_key>/chunks", methods=["POST"])
 def save_recording_chunk_route(session_key):
     session = get_session_by_key(session_key)
@@ -516,6 +540,28 @@ def upload():
 @app.route("/recordings/<path:filename>")
 def recording_file(filename):
     return send_from_directory(RECORDINGS_DIR, filename)
+
+
+@app.route("/recordings/note_images/<path:filename>")
+def note_image_file(filename):
+    return send_from_directory(NOTE_IMAGES_DIR, filename)
+
+
+@app.route("/api/note_images", methods=["POST"])
+def upload_note_image():
+    image_file = request.files.get("image")
+    if not image_file or image_file.filename == "":
+        return jsonify({"error": "No image received."}), 400
+
+    extension = image_file.filename.rsplit(".", 1)[-1].lower()
+    if extension not in {"png", "jpg", "jpeg", "gif", "webp"}:
+        return jsonify({"error": "Unsupported image type."}), 400
+
+    os.makedirs(NOTE_IMAGES_DIR, exist_ok=True)
+    safe_name = secure_filename(image_file.filename.rsplit(".", 1)[0]) or "image"
+    filename = f"{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{safe_name}_{uuid.uuid4().hex}.{extension}"
+    image_file.save(os.path.join(NOTE_IMAGES_DIR, filename))
+    return jsonify({"url": url_for("note_image_file", filename=filename)})
 
 
 @app.route("/download_transcript/<int:note_id>")
@@ -745,8 +791,49 @@ def retry_key_points(note_id):
     note.key_points_status = KEY_POINTS_PENDING
     note.key_points_error = None
     db.session.commit()
-    transcription_executor.submit(extract_key_points, note.id, note.transcription)
+    transcription_executor.submit(
+        extract_key_points,
+        note.id,
+        note.transcription,
+        note.key_points_generation or 0,
+    )
     return jsonify({"message": "Retrying key point extraction."})
+
+
+@app.route("/notes/<int:note_id>/notes", methods=["POST"])
+def update_note_rich_notes(note_id):
+    note = Note.query.get_or_404(note_id)
+    data = request.get_json(silent=True) or {}
+    note.notes_html = sanitize_rich_note_html(data.get("notes_html"))
+    note.key_points_generation = (note.key_points_generation or 0) + 1
+    note.key_points_error = None
+
+    should_regenerate = (
+        note.transcription_status == TRANSCRIPTION_COMPLETED and note.transcription
+    )
+    if should_regenerate:
+        note.key_points_status = KEY_POINTS_PENDING
+    elif note.transcription_status not in {TRANSCRIPTION_PENDING, TRANSCRIPTION_PROCESSING}:
+        note.key_points_status = KEY_POINTS_FAILED
+        note.key_points_error = "Transcript is not available yet."
+
+    db.session.commit()
+
+    if should_regenerate:
+        transcription_executor.submit(
+            extract_key_points,
+            note.id,
+            note.transcription,
+            note.key_points_generation,
+        )
+
+    return jsonify(
+        {
+            "message": "Notes updated.",
+            "notes_html": note.notes_html or "",
+            "key_points_status": note.key_points_status,
+        }
+    )
 
 
 @app.route("/update_note/<int:note_id>", methods=["POST"])

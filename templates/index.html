@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+{% import "_rich_notes_editor.html" as rich_notes %}
 
 <head>
     <meta charset="UTF-8">
@@ -37,6 +38,13 @@
                 </button>
             </form>
             <div id="recording-status" class="mt-3"></div>
+            <div id="active-notes-panel" class="rich-notes-panel text-start mt-3 d-none">
+                <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+                    <div class="fw-semibold">Recording notes</div>
+                    <div id="active-notes-save-status" class="small text-muted"></div>
+                </div>
+                {{ rich_notes.editor("active-recording-notes-editor") }}
+            </div>
         </div>
 
         <div class="text-end mb-2">
@@ -57,7 +65,7 @@
             <div class="col-12 col-md-4">
                 <label for="search-input" class="form-label small mb-1">Search</label>
                 <input type="search" id="search-input" class="form-control"
-                    placeholder="Search title, transcript, subject, key points...">
+                    placeholder="Search title, notes, transcript, subject, key points...">
             </div>
             <div class="col-6 col-md-2">
                 <label for="date-from-input" class="form-label small mb-1">Date from</label>

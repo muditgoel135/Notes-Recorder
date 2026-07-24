@@ -165,6 +165,7 @@ def finish_recording_session(session, end_time=None):
         end_time=end_time,
         subject=session.subject,
         recording_path=relative_path,
+        notes_html=session.notes_html,
         transcription_status=TRANSCRIPTION_PENDING,
     )
 

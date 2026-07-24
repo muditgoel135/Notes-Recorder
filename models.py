@@ -24,6 +24,7 @@ class Note(db.Model):
     end_time = db.Column(db.String(8), nullable=True)
     subject = db.Column(db.String(100), nullable=True)
     recording_path = db.Column(db.String(200), nullable=True)
+    notes_html = db.Column(db.Text, nullable=True)
     transcription = db.Column(db.Text, nullable=True)
     transcription_segments = db.Column(db.Text, nullable=True)
     transcription_status = db.Column(
@@ -37,6 +38,7 @@ class Note(db.Model):
     key_points_status = db.Column(
         db.String(20), nullable=False, default=KEY_POINTS_PENDING
     )
+    key_points_generation = db.Column(db.Integer, nullable=False, default=0)
 
     key_points_error = db.Column(db.Text, nullable=True)
     tags = db.relationship("Tag", secondary="note_tags", backref="notes")
@@ -62,6 +64,7 @@ class RecordingSession(db.Model):
     extension = db.Column(db.String(10), nullable=False, default="webm")
     chunk_count = db.Column(db.Integer, nullable=False, default=0)
     segments_json = db.Column(db.Text, nullable=True)
+    notes_html = db.Column(db.Text, nullable=True)
     note_id = db.Column(db.Integer, db.ForeignKey("note.id"), nullable=True)
     note = db.relationship("Note", backref="recording_session", uselist=False)
 
@@ -76,6 +79,7 @@ class RecordingSession(db.Model):
             "mime_type": self.mime_type,
             "extension": self.extension,
             "chunk_count": self.chunk_count,
+            "notes_html": self.notes_html or "",
             "note_id": self.note_id,
         }
 

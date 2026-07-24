@@ -5,6 +5,7 @@ load_dotenv()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RECORDINGS_DIR = os.path.join(BASE_DIR, "recordings")
+NOTE_IMAGES_DIR = os.path.join(RECORDINGS_DIR, "note_images")
 
 ALLOWED_EXTENSIONS = {"wav", "mp3", "ogg", "webm", "m4a", "mp4"}
 

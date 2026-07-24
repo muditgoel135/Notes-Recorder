@@ -1,11 +1,12 @@
 from extensions import app
-from text_filters import render_markdown, parse_json
+from text_filters import render_markdown, parse_json, render_rich_note_html
 from notes_query import init_database
 from transcription import enqueue_existing_transcriptions, enqueue_existing_key_points
 from config import TRANSCRIBE_EXISTING_ON_STARTUP
 
 app.jinja_env.filters["markdown"] = render_markdown
 app.jinja_env.filters["from_json"] = parse_json
+app.jinja_env.filters["rich_note"] = render_rich_note_html
 
 import routes  # noqa: F401  (registers @app.route views as a side effect)
 
