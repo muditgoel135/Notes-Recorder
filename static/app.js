@@ -17,6 +17,11 @@ let nextChunkIndex = 0;
 let pendingChunkUploads = [];
 let isStoppingRecording = false;
 let hasChunkUploadError = false;
+let activeMathEditor = null;
+let editingMathSpan = null;
+let mathQuillInterface = null;
+let modalMathField = null;
+let isSyncingMathLatex = false;
 
 const ACTIVE_RECORDING_STORAGE_KEY = "activeRecordingSession";
 const RECORDING_CHUNK_INTERVAL_MS = 2000;
@@ -56,6 +61,12 @@ function getExtension(mimeType) {
     return "webm";
 }
 
+function escapeHtml(value) {
+    const div = document.createElement("div");
+    div.textContent = String(value);
+    return div.innerHTML;
+}
+
 function getRichEditorSurface(wrapper) {
     return wrapper ? wrapper.querySelector(".rich-notes-surface") : null;
 }
@@ -83,6 +94,93 @@ function insertHtmlAtCursor(editor, html) {
     focusRichEditor(editor);
     document.execCommand("insertHTML", false, html);
     editor.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function getMathModal() {
+    return document.getElementById("math-editor-modal");
+}
+
+function getMathInput() {
+    return document.getElementById("math-editor-latex");
+}
+
+function getMathFieldElement() {
+    return document.getElementById("math-editor-field");
+}
+
+function setModalMathLatex(latex) {
+    const input = getMathInput();
+    if (!input) {
+        return;
+    }
+
+    isSyncingMathLatex = true;
+    input.value = latex || "";
+    if (modalMathField) {
+        modalMathField.latex(latex || "");
+    }
+    isSyncingMathLatex = false;
+}
+
+function syncLatexFromModalField() {
+    const input = getMathInput();
+    if (!input || !modalMathField || isSyncingMathLatex) {
+        return;
+    }
+    input.value = modalMathField.latex();
+}
+
+function syncModalFieldFromLatexInput() {
+    const input = getMathInput();
+    if (!input || !modalMathField || isSyncingMathLatex) {
+        return;
+    }
+    isSyncingMathLatex = true;
+    modalMathField.latex(input.value);
+    isSyncingMathLatex = false;
+}
+
+function initMathQuill() {
+    if (mathQuillInterface || typeof MathQuill === "undefined") {
+        return mathQuillInterface;
+    }
+    mathQuillInterface = MathQuill.getInterface(2);
+    return mathQuillInterface;
+}
+
+function initModalMathField() {
+    const MQ = initMathQuill();
+    const fieldEl = getMathFieldElement();
+    if (!MQ || !fieldEl) {
+        return null;
+    }
+    if (!modalMathField) {
+        modalMathField = MQ.MathField(fieldEl, {
+            spaceBehavesLikeTab: true,
+            restrictMismatchedBrackets: true,
+            handlers: {
+                edit: syncLatexFromModalField,
+            },
+        });
+    }
+    return modalMathField;
+}
+
+function openMathEditor(editor, mathSpan = null) {
+    const modalEl = getMathModal();
+    const input = getMathInput();
+    if (!modalEl || !input || !editor) {
+        return;
+    }
+    if (!initModalMathField()) {
+        alert("Math editor assets could not be loaded.");
+        return;
+    }
+
+    activeMathEditor = editor;
+    editingMathSpan = mathSpan;
+    setModalMathLatex(mathSpan ? mathSpan.dataset.latex || "" : "");
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
 }
 
 function clampInteger(value, min, max, fallback) {
@@ -348,6 +446,7 @@ function setActiveNotesVisible(visible) {
 
 function setActiveNotesHtml(html) {
     activeNotesEditor.innerHTML = html || "";
+    renderMathFields(activeNotesEditor);
 }
 
 async function saveActiveRecordingNotesNow() {
@@ -375,7 +474,7 @@ async function saveActiveRecordingNotesNow() {
 }
 
 const debouncedSaveActiveRecordingNotes = debounce(() => {
-    saveActiveRecordingNotesNow().catch(() => {});
+    saveActiveRecordingNotesNow().catch(() => { });
 }, 600);
 
 async function uploadRecording(blob, extension) {
@@ -714,6 +813,21 @@ document.addEventListener("click", async (event) => {
     const tableButton = event.target.closest(".rich-table-btn");
     const tableCommandButton = event.target.closest(".rich-table-command");
     const imageButton = event.target.closest(".rich-image-btn");
+    const mathButton = event.target.closest(".rich-math-btn");
+    const existingMath = event.target.closest("span.math-field[data-latex]");
+
+    if (existingMath) {
+        const editor = existingMath.closest(".rich-notes-surface");
+        if (editor && editor.isContentEditable) {
+            openMathEditor(editor, existingMath);
+        }
+        return;
+    }
+
+    if (mathButton) {
+        openMathEditor(getRichEditorSurface(mathButton.closest("[data-rich-notes-editor]")));
+        return;
+    }
 
     if (tableCommandButton) {
         runTableCommand(
@@ -1135,6 +1249,26 @@ function bindAudioSync() {
     });
 }
 
+function renderMathFields(root = document) {
+    const MQ = initMathQuill();
+    root.querySelectorAll('span.math-field[data-latex]').forEach(el => {
+        const latex = el.dataset.latex || "";
+        el.title = `LaTeX: ${latex}\n(Click to edit)`;
+        if (!MQ) {
+            el.textContent = `$${latex}$`;
+            return;
+        }
+        const existingMath = MQ(el);
+        if (existingMath) {
+            existingMath.latex(latex);
+            return;
+        }
+        el.textContent = latex;
+        MQ.StaticMath(el);
+    });
+}
+
+
 function snapshotPlayback() {
     const snapshots = [];
     document.querySelectorAll("audio[data-note-id]").forEach((audio) => {
@@ -1278,7 +1412,9 @@ async function fetchAndRenderNotes(page = 1) {
     const playbackSnapshots = snapshotPlayback();
     const openCollapseIds = snapshotOpenCollapses();
     const richNotesEditSnapshots = snapshotRichNotesEdits();
-    document.getElementById("recordings-list").innerHTML = data.html;
+    const listEl = document.getElementById("recordings-list");
+    listEl.innerHTML = data.html;
+    renderMathFields(listEl);
     bindAudioSync();
     applyDynamicNoteStyles(document.getElementById("recordings-list"));
     restorePlayback(playbackSnapshots);
@@ -1319,6 +1455,7 @@ document.getElementById("clear-filters-btn").addEventListener("click", () => {
 
 bindAudioSync();
 applyDynamicNoteStyles(document.getElementById("recordings-list"));
+renderMathFields(document.getElementById("recordings-list"));
 schedulePolling(document.body.dataset.hasActiveTranscription === "true");
 
 // --- Tag management ---
@@ -1328,12 +1465,6 @@ let selectedFilterTagIds = new Set();
 let activeNoteTagsId = null;
 let allSubjects = [];
 let selectedFilterSubjects = new Set();
-
-function escapeHtml(value) {
-    const div = document.createElement("div");
-    div.textContent = String(value);
-    return div.innerHTML;
-}
 
 function buildTagTree(flatTags) {
     const byId = new Map(flatTags.map((tag) => [tag.id, { ...tag, children: [] }]));
@@ -1683,3 +1814,49 @@ document.getElementById("save-note-tags-btn").addEventListener("click", async ()
 
 loadTags();
 loadSubjects().then(restoreActiveRecordingIfNeeded);
+
+document.addEventListener('DOMContentLoaded', () => {
+    const mathModalEl = document.getElementById('math-editor-modal');
+    if (!mathModalEl) return;
+
+    const latexInput = document.getElementById('math-editor-latex');
+    const insertBtn = document.getElementById('insert-math-btn');
+    if (!initModalMathField()) {
+        document.querySelectorAll('.rich-math-btn').forEach((button) => {
+            button.disabled = true;
+            button.title = "MathQuill could not be loaded.";
+        });
+        return;
+    }
+
+    mathModalEl.addEventListener('shown.bs.modal', () => {
+        setTimeout(() => {
+            modalMathField.focus();
+            modalMathField.reflow();
+        }, 100);
+    });
+
+    latexInput.addEventListener('input', syncModalFieldFromLatexInput);
+
+    insertBtn.addEventListener('click', () => {
+        const latex = modalMathField.latex().trim();
+        if (editingMathSpan) {
+            const editor = editingMathSpan.closest('.rich-notes-surface');
+            if (latex) {
+                editingMathSpan.dataset.latex = latex;
+                renderMathFields(editingMathSpan.parentElement);
+            } else {
+                editingMathSpan.remove();
+            }
+            if (editor) editor.dispatchEvent(new Event("input", { bubbles: true }));
+        } else if (activeMathEditor && latex) {
+            const id = `math-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+            const html = `<span id="${id}" class="math-field" data-latex="${escapeHtml(latex)}" contenteditable="false"></span>`;
+            insertHtmlAtCursor(activeMathEditor, html + '&nbsp;');
+            renderMathFields(activeMathEditor);
+        }
+        bootstrap.Modal.getInstance(mathModalEl).hide();
+        editingMathSpan = null;
+        activeMathEditor = null;
+    });
+});

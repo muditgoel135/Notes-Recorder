@@ -18,6 +18,7 @@ A small Flask app for recording class notes from the browser microphone, transcr
 - Automatic title and key-points extraction from the transcript using Ollama's hosted API (requires internet; waits and retries automatically if offline). When diarization is available, key points are generated from the speaker-labeled transcript.
 - Chat with selected transcript-ready recordings using Ollama's hosted API, with saved chat sessions, renameable chat titles, and message history stored in the app database.
 - Inline editing of note title and key points.
+- Rich notes now include inline math editing: use the **Math** button in the rich editor to insert LaTeX, click an existing formula to edit it, and see rendered math preserved in saved notes and the transcript view.
 - Retry transcription or key-points extraction at any time, not just after a failure. Retrying transcription also re-runs key-points extraction on the new transcript.
 - Download a note's transcript (`.txt`) or key points (`.md`).
 - Click a word in the transcript to jump playback to that point in the audio, with the current word highlighted as it plays. A **Sync transcript with audio playback** checkbox toggles this behavior on or off (remembered across visits).
@@ -66,7 +67,7 @@ Notes-Recorder/
 |   |-- app.js          # all client-side JS: recording, filters, tags, subjects, transcript sync
 |   |-- chat.js         # client-side JS for chat session and recording picker workflows
 |   |-- style.css
-|   `-- bootstrap-css/, bootstrap-js/  # vendored Bootstrap assets
+|   `-- bootstrap-css/, bootstrap-js/, vendor/  # vendored Bootstrap, jQuery, and MathQuill assets
 |-- recordings/
 `-- instance/
 ```
@@ -99,6 +100,7 @@ Optional environment variables (e.g. in a `.env` file):
 - `OLLAMA_MODEL` — Ollama model used for key-points extraction and chat (default `gpt-oss:20b`).
 - `TRANSCRIBE_EXISTING_ON_STARTUP` — set to `false` to skip re-queuing any pending transcriptions/key-points on startup (default `true`).
 - `DEFAULT_PER_PAGE` — number of notes shown per page in the notes list (default `10`).
+- The rich notes editor relies on vendored `jquery` and `MathQuill` assets in `static/vendor/`, so no extra npm install step is needed for math editing.
 - `HUGGINGFACE_TOKEN` — Hugging Face access token used for speaker diarization (`pyannote.audio`). Without it, transcripts still work but aren't split by speaker. To set one up:
   1. Create a free account at [huggingface.co](https://huggingface.co) and generate a **read**-scope token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
   2. Accept the model terms (with that same account) for [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1), [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0), and [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1).
@@ -129,13 +131,14 @@ http://127.0.0.1:5000/
 7. Edit a note's title, key points, tags, or subject inline if needed. Use **Retry transcription** (next to **Show full transcript**) or **Retry key points** (next to **Show key points**) to redo either step at any time — including after a failure, or just to regenerate with an updated model.
 8. Once transcription or key-points extraction complete, download them from the note's **Download transcript** / **Download key points** buttons.
 9. Click a word in the transcript to jump the audio to that point; the word being spoken is highlighted during playback.
-10. When diarization is configured, each speaker turn shows a colored badge (e.g. "Speaker 1"); click a badge to rename that speaker for the note (e.g. "Teacher").
-11. Assign hierarchical tags to a note and filter the notes list by tag. Use **Manage Tags** to create, edit (name/color), delete, or nest tags as subtags. Deleting a tag also deletes its subtags.
-12. Use **Manage Subjects** to add or delete subjects available when starting a recording.
-13. Filter the notes list by one or more subjects using the **Subject** dropdown.
-14. Click **Chat with Recordings** to start or reopen saved chats. The recording picker uses the current search/date/time/tag/subject filters and only includes recordings with completed transcripts.
-15. Select one or more recordings, click **Start chat** or send a first message to create the chat, then use **Rename** to update the saved chat title if needed.
-16. Click **Delete** on a note to remove it, along with its saved recording file.
+10. Use the **Math** button in the rich notes editor to insert LaTeX formulas, or click an existing formula to reopen it in the editor.
+11. When diarization is configured, each speaker turn shows a colored badge (e.g. "Speaker 1"); click a badge to rename that speaker for the note (e.g. "Teacher").
+12. Assign hierarchical tags to a note and filter the notes list by tag. Use **Manage Tags** to create, edit (name/color), delete, or nest tags as subtags. Deleting a tag also deletes its subtags.
+13. Use **Manage Subjects** to add or delete subjects available when starting a recording.
+14. Filter the notes list by one or more subjects using the **Subject** dropdown.
+15. Click **Chat with Recordings** to start or reopen saved chats. The recording picker uses the current search/date/time/tag/subject filters and only includes recordings with completed transcripts.
+16. Select one or more recordings, click **Start chat** or send a first message to create the chat, then use **Rename** to update the saved chat title if needed.
+17. Click **Delete** on a note to remove it, along with its saved recording file.
 
 You can also upload existing `.wav`, `.mp3`, `.ogg`, `.webm`, `.m4a`, or `.mp4` audio files.
 
@@ -156,3 +159,4 @@ Use the search box and date/time filters above the notes list to find recordings
 - Speaker diarization requires internet access (and a valid `HUGGINGFACE_TOKEN`) the first time it downloads the diarization model; after that it runs locally like Whisper. If diarization fails or isn't configured, transcription still completes normally, just without speaker labels.
 - Generated markdown is normalized before rendering so common LLM list-indentation mistakes are shown as lists instead of code blocks.
 - Key-points extraction tolerates minor JSON formatting mistakes in Ollama's response (e.g. stray backslashes) by attempting to repair and re-parse them before failing.
+- Inline math in rich notes is stored as sanitized HTML with a `data-latex` payload so the app can round-trip, render, and edit formulas safely.

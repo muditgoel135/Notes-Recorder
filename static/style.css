@@ -50,6 +50,31 @@
     margin: 0.5rem 0;
 }
 
+.math-field {
+    display: inline-block;
+    max-width: 100%;
+    color: #212529;
+    vertical-align: baseline;
+}
+
+.rich-notes-surface .math-field {
+    cursor: pointer;
+}
+
+.math-editor-field {
+    min-height: 3rem;
+    padding: 0.5rem;
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    background-color: #fff;
+    font-size: 1.25rem;
+}
+
+.math-editor-field.mq-focused {
+    border-color: #86b7fe;
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.15);
+}
+
 .rich-color-label {
     display: inline-flex;
     align-items: center;
