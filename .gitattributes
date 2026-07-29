@@ -2,3 +2,4 @@
 static/bootstrap-css/** linguist-vendored
 static/bootstrap-js/** linguist-vendored
 static/vendor/** linguist-vendored
+static/vendor/mathquill/mathquill.js linguist-vendored
