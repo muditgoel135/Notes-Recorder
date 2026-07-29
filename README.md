@@ -17,8 +17,10 @@ A small Flask app for recording class notes from the browser microphone, transcr
 - Speaker diarization: automatically detects and labels distinct speakers ("Speaker 1", "Speaker 2", ...) in the transcript, shown as color-coded badges. Speakers can be renamed per note (e.g. "Teacher"). Requires a Hugging Face token; falls back to an undifferentiated transcript if not configured.
 - Automatic title and key-points extraction from the transcript using Ollama's hosted API (requires internet; waits and retries automatically if offline). When diarization is available, key points are generated from the speaker-labeled transcript.
 - Chat with selected transcript-ready recordings using Ollama's hosted API, with saved chat sessions, renameable chat titles, and message history stored in the app database.
-- Inline editing of note title and key points.
-- Rich notes now include inline math editing: use the **Math** button in the rich editor to insert LaTeX, click an existing formula to edit it, and see rendered math preserved in saved notes and the transcript view.
+- Inline editing of note title, key points, subject, date, and start time. Date/time edits preserve the original recording duration and recalculate the end time.
+- Rich notes can be captured while recording and edited later. The editor supports headings, bold/italic/underline, lists, links, text/highlight colors, tables, image uploads, and inline math.
+- Rich-note images are stored locally and included as image context when Ollama generates key points or answers chats about selected recordings.
+- Inline math editing: use the **Math** button in the rich editor to insert LaTeX, click an existing formula to edit it, and see rendered math preserved in saved notes and the transcript view.
 - Retry transcription or key-points extraction at any time, not just after a failure. Retrying transcription also re-runs key-points extraction on the new transcript.
 - Download a note's transcript (`.txt`) or key points (`.md`).
 - Click a word in the transcript to jump playback to that point in the audio, with the current word highlighted as it plays. A **Sync transcript with audio playback** checkbox toggles this behavior on or off (remembered across visits).
@@ -52,19 +54,23 @@ Notes-Recorder/
 |-- config.py           # environment-derived settings and constants
 |-- models.py           # Note, Speaker, Subject, Tag, and chat database models
 |-- notes_query.py      # DB init/migration and notes list querying
+|-- note_images.py      # rich-note image extraction and Ollama image encoding helpers
 |-- recordings.py       # audio file storage helpers
 |-- transcription.py    # Whisper transcription, diarization, Ollama key points
 |-- routes.py           # Flask view functions
 |-- text_filters.py     # Jinja template filters (markdown, from_json)
+|-- LICENSE.txt
 |-- requirements.txt
 |-- templates/
 |   |-- index.html
 |   |-- chat.html
 |   |-- _notes_list.html
+|   |-- _rich_notes_editor.html
 |   |-- _transcript.html
 |   `-- _transcript_macros.html
 |-- static/
-|   |-- app.js          # all client-side JS: recording, filters, tags, subjects, transcript sync
+|   |-- app.js          # recording, active rich notes, rich editor commands, image/math tools
+|   |-- notes-list.js   # notes list interactions, filters, tags, subjects, transcript sync
 |   |-- chat.js         # client-side JS for chat session and recording picker workflows
 |   |-- style.css
 |   `-- bootstrap-css/, bootstrap-js/, vendor/  # vendored Bootstrap, jQuery, and MathQuill assets
@@ -72,7 +78,7 @@ Notes-Recorder/
 `-- instance/
 ```
 
-`recordings/` stores saved audio files. `instance/database.db` stores the SQLite database.
+`recordings/` stores saved audio files. Rich-note images are stored under `recordings/note_images/`, and in-progress chunked recordings use `recordings/session_chunks/`. `instance/database.db` stores the SQLite database.
 
 ## Setup
 
@@ -101,6 +107,7 @@ Optional environment variables (e.g. in a `.env` file):
 - `TRANSCRIBE_EXISTING_ON_STARTUP` — set to `false` to skip re-queuing any pending transcriptions/key-points on startup (default `true`).
 - `DEFAULT_PER_PAGE` — number of notes shown per page in the notes list (default `10`).
 - The rich notes editor relies on vendored `jquery` and `MathQuill` assets in `static/vendor/`, so no extra npm install step is needed for math editing.
+- Rich-note image uploads support `.png`, `.jpg`, `.jpeg`, `.gif`, and `.webp`. These images can be sent to Ollama as context for key-points extraction and chat.
 - `HUGGINGFACE_TOKEN` — Hugging Face access token used for speaker diarization (`pyannote.audio`). Without it, transcripts still work but aren't split by speaker. To set one up:
   1. Create a free account at [huggingface.co](https://huggingface.co) and generate a **read**-scope token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
   2. Accept the model terms (with that same account) for [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1), [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0), and [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1).
@@ -125,20 +132,22 @@ http://127.0.0.1:5000/
 1. Select a subject.
 2. Click **Start Recording**.
 3. Allow microphone permission in the browser.
-4. Click **Stop Recording** when you are done.
-5. The recording is saved and appears in the recordings list.
-6. Transcription and key-points extraction run in the background; the list updates automatically as they complete, showing a live progress bar while transcription is in progress.
-7. Edit a note's title, key points, tags, or subject inline if needed. Use **Retry transcription** (next to **Show full transcript**) or **Retry key points** (next to **Show key points**) to redo either step at any time — including after a failure, or just to regenerate with an updated model.
-8. Once transcription or key-points extraction complete, download them from the note's **Download transcript** / **Download key points** buttons.
-9. Click a word in the transcript to jump the audio to that point; the word being spoken is highlighted during playback.
-10. Use the **Math** button in the rich notes editor to insert LaTeX formulas, or click an existing formula to reopen it in the editor.
-11. When diarization is configured, each speaker turn shows a colored badge (e.g. "Speaker 1"); click a badge to rename that speaker for the note (e.g. "Teacher").
-12. Assign hierarchical tags to a note and filter the notes list by tag. Use **Manage Tags** to create, edit (name/color), delete, or nest tags as subtags. Deleting a tag also deletes its subtags.
-13. Use **Manage Subjects** to add or delete subjects available when starting a recording.
-14. Filter the notes list by one or more subjects using the **Subject** dropdown.
-15. Click **Chat with Recordings** to start or reopen saved chats. The recording picker uses the current search/date/time/tag/subject filters and only includes recordings with completed transcripts.
-16. Select one or more recordings, click **Start chat** or send a first message to create the chat, then use **Rename** to update the saved chat title if needed.
-17. Click **Delete** on a note to remove it, along with its saved recording file.
+4. Add live **Recording notes** while recording if useful; they auto-save into the active recording session.
+5. Click **Stop Recording** when you are done.
+6. The recording is saved and appears in the recordings list, including any rich notes captured during recording.
+7. Transcription and key-points extraction run in the background; the list updates automatically as they complete, showing a live progress bar while transcription is in progress.
+8. Edit a note's title, key points, rich notes, tags, subject, or date/time inline if needed. Editing rich notes automatically queues fresh key-points extraction when a transcript exists.
+9. Use **Retry transcription** (next to **Show full transcript**) or **Retry key points** (next to **Show key points**) to redo either step at any time -- including after a failure, or just to regenerate with an updated model.
+10. Once transcription or key-points extraction complete, download them from the note's **Download transcript** / **Download key points** buttons.
+11. Click a word in the transcript to jump the audio to that point; the word being spoken is highlighted during playback.
+12. Use the rich notes toolbar to add formatting, links, tables, uploaded images, and LaTeX formulas. Existing formulas can be clicked to reopen them in the math editor.
+13. When diarization is configured, each speaker turn shows a colored badge (e.g. "Speaker 1"); click a badge to rename that speaker for the note (e.g. "Teacher").
+14. Assign hierarchical tags to a note and filter the notes list by tag. Use **Manage Tags** to create, edit (name/color), delete, or nest tags as subtags. Deleting a tag also deletes its subtags.
+15. Use **Manage Subjects** to add or delete subjects available when starting a recording.
+16. Filter the notes list by one or more subjects using the **Subject** dropdown.
+17. Click **Chat with Recordings** to start or reopen saved chats. The recording picker uses the current search/date/time/tag/subject filters and only includes recordings with completed transcripts.
+18. Select one or more recordings, click **Start chat** or send a first message to create the chat, then use **Rename** to update the saved chat title if needed.
+19. Click **Delete** on a note to remove it, along with its saved recording file.
 
 You can also upload existing `.wav`, `.mp3`, `.ogg`, `.webm`, `.m4a`, or `.mp4` audio files.
 
@@ -149,14 +158,16 @@ Use the search box and date/time filters above the notes list to find recordings
 - Browser microphone recording works on `localhost`/`127.0.0.1` and HTTPS pages.
 - The app records from the browser microphone, not the server machine's microphone.
 - While recording, the app warns before page unloads. If the page is refreshed anyway, it attempts to restore the active session from browser `localStorage` and continue uploading chunks after microphone access is allowed again.
+- Rich notes entered during an active recording are saved to the active session and recovered with the recording after reloads.
 - WebM recordings are patched with duration metadata when possible so saved browser recordings report a useful playback length.
 - Saved recording files are ignored by Git through `recordings/` in `.gitignore`.
 - The app creates or updates its SQLite tables on startup, and seeds a default subject list (Math, Physics, Chemistry, Biology, English, Hindi, Individuals and Societies) the first time it runs with no subjects yet. Manage or replace these afterwards via **Manage Subjects**. Deleting a subject removes it from the picker; existing notes keep their stored subject text.
 - Transcription and key-points extraction run one at a time in a background worker; large backlogs process sequentially. On startup, pending or interrupted transcriptions/key-point jobs are re-queued unless `TRANSCRIBE_EXISTING_ON_STARTUP=false`.
 - The first transcription run downloads the selected Whisper model, which can take a while depending on model size and network speed.
 - The app can be used fully offline for recording and transcription. Key-points extraction needs internet access to reach Ollama; while offline it shows as "Extracting key points..." and retries automatically until a connection is available.
-- Chatting with recordings also requires internet access and `OLLAMA_API_KEY`; if a request fails, the user's message remains saved in the chat history.
+- Chatting with recordings also requires internet access and `OLLAMA_API_KEY`; if a request fails, the user's message remains saved in the chat history. Any images embedded in the selected rich notes are attached to the Ollama context.
 - Speaker diarization requires internet access (and a valid `HUGGINGFACE_TOKEN`) the first time it downloads the diarization model; after that it runs locally like Whisper. If diarization fails or isn't configured, transcription still completes normally, just without speaker labels.
 - Generated markdown is normalized before rendering so common LLM list-indentation mistakes are shown as lists instead of code blocks.
 - Key-points extraction tolerates minor JSON formatting mistakes in Ollama's response (e.g. stray backslashes) by attempting to repair and re-parse them before failing.
 - Inline math in rich notes is stored as sanitized HTML with a `data-latex` payload so the app can round-trip, render, and edit formulas safely.
+- Rich-note HTML is sanitized with Bleach before rendering or converting to text for Ollama prompts; local rich-note image paths are validated before the image data is read.

@@ -1,6 +1,14 @@
+"""
+
+Database models for the Flask app.
+
+"""
+
+# Import required modules
 from collections import defaultdict
 from datetime import datetime
 
+# Import SQLAlchemy and the database instance
 from extensions import db
 from config import TRANSCRIPTION_PENDING, KEY_POINTS_PENDING
 

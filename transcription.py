@@ -1,3 +1,10 @@
+"""
+
+This module handles the transcription of audio files into text, including speaker diarization and integration with Whisper and Ollama for processing notes and key points.
+
+"""
+
+# Import required modules
 import json
 import os
 import re
@@ -9,12 +16,13 @@ import time
 import wave
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-
 import numpy as np
 import requests
 
+# Import extensions, models, note_images, text_filters, and config
 from extensions import app, db
 from models import Note, Speaker, SPEAKER_COLOR_PALETTE
+from note_images import collect_ollama_note_images
 from text_filters import rich_note_html_to_text
 from config import (
     BASE_DIR,
@@ -506,37 +514,41 @@ def extract_key_points(note_id, transcript, generation=None):
             if user_notes:
                 context_parts.append(f"User notes:\n{user_notes}")
             context_parts.append(f"Transcript:\n{prompt_transcript}")
+            message = {
+                "role": "user",
+                "content": (
+                    "You are given a class recording transcript. Lines "
+                    "are prefixed with the speaker who said them (e.g. "
+                    "'Speaker 1: ...') when that information is "
+                    "available; use it to attribute points to the "
+                    "right speaker where relevant, but don't let it "
+                    "distract from summarizing the content. Respond "
+                    "with ONLY a JSON object of the form "
+                    '{"title": "short descriptive title (max 8 words)", '
+                    '"key_points": "markdown notes summarizing the '
+                    "transcript\"}. In key_points, use '## ' headings "
+                    "to group related points into sections when the "
+                    "transcript covers multiple topics, and '-' for "
+                    "bullets under each heading. Nested bullets must be "
+                    "indented by exactly 4 spaces per level (required "
+                    "for the list to render as nested). Bold with "
+                    "**text** where useful. Treat the user's notes as "
+                    "important context that may clarify, correct, or "
+                    "prioritize parts of the transcript. Images attached "
+                    "to this message were embedded in the user's notes. "
+                    "No preamble or "
+                    f"closing remarks.\n\n{chr(10).join(context_parts)}"
+                ),
+            }
+            note_images = collect_ollama_note_images([note])
+            if note_images:
+                message["images"] = note_images
             response = requests.post(
                 OLLAMA_CHAT_URL,
                 headers={"Authorization": f"Bearer {OLLAMA_API_KEY}"},
                 json={
                     "model": OLLAMA_MODEL,
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": (
-                                "You are given a class recording transcript. Lines "
-                                "are prefixed with the speaker who said them (e.g. "
-                                "'Speaker 1: ...') when that information is "
-                                "available; use it to attribute points to the "
-                                "right speaker where relevant, but don't let it "
-                                "distract from summarizing the content. Respond "
-                                "with ONLY a JSON object of the form "
-                                '{"title": "short descriptive title (max 8 words)", '
-                                '"key_points": "markdown notes summarizing the '
-                                "transcript\"}. In key_points, use '## ' headings "
-                                "to group related points into sections when the "
-                                "transcript covers multiple topics, and '-' for "
-                                "bullets under each heading. Nested bullets must be "
-                                "indented by exactly 4 spaces per level (required "
-                                "for the list to render as nested). Bold with "
-                                "**text** where useful. Treat the user's notes as "
-                                "important context that may clarify, correct, or "
-                                "prioritize parts of the transcript. No preamble or "
-                                f"closing remarks.\n\n{chr(10).join(context_parts)}"
-                            ),
-                        }
-                    ],
+                    "messages": [message],
                     "format": "json",
                     "stream": False,
                 },

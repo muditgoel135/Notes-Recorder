@@ -1,3 +1,11 @@
+"""
+
+This module provides utilities for filtering, sanitizing, and converting rich text
+and markdown content, including HTML parsing and sanitization for notes.
+
+"""
+
+# Import required modules
 import json
 import re
 from html.parser import HTMLParser
@@ -54,7 +62,11 @@ ALLOWED_RICH_NOTE_ATTRIBUTES = {
     "span": ["style", "class", "data-latex", "contenteditable", "title", "id"],
 }
 
-ALLOWED_RICH_NOTE_PROTOCOLS = ["http", "https", "mailto"]
+ALLOWED_RICH_NOTE_PROTOCOLS = ["http", "https", "mailto", "data"]
+ALLOWED_IMAGE_DATA_RE = re.compile(
+    r"^data:image/(png|jpe?g|gif|webp);base64,[a-z0-9+/=\s]+$",
+    re.IGNORECASE,
+)
 
 RICH_NOTE_CSS_SANITIZER = (
     CSSSanitizer(
@@ -130,7 +142,7 @@ def normalize_list_indentation(text):
     :param text: Markdown text to normalize
     :return: Markdown text with normalized list indentation
     """
-    
+
     stack = []  # (raw_indent, normalized_indent) per open list level
     lines = []
     for line in text.split("\n"):
@@ -183,13 +195,32 @@ def sanitize_rich_note_html(html):
     cleaned = bleach.clean(
         html,
         tags=ALLOWED_RICH_NOTE_TAGS,
-        attributes=ALLOWED_RICH_NOTE_ATTRIBUTES,
+        attributes=allow_rich_note_attribute,
         protocols=ALLOWED_RICH_NOTE_PROTOCOLS,
         css_sanitizer=RICH_NOTE_CSS_SANITIZER,
         strip=True,
     )
     cleaned = bleach.linkify(cleaned, callbacks=[set_link_attrs])
     return cleaned.strip() or None
+
+
+def allow_rich_note_attribute(tag, name, value):
+    allowed = set(ALLOWED_RICH_NOTE_ATTRIBUTES.get("*", []))
+    allowed.update(ALLOWED_RICH_NOTE_ATTRIBUTES.get(tag, []))
+    if name not in allowed:
+        return False
+
+    if tag == "img" and name == "src" and (value or "").lower().startswith("data:"):
+        return bool(ALLOWED_IMAGE_DATA_RE.match(value or ""))
+
+    if (
+        tag != "img"
+        and name in {"href", "src"}
+        and (value or "").lower().startswith("data:")
+    ):
+        return False
+
+    return True
 
 
 def set_link_attrs(attrs, new=False):

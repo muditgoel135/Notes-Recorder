@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
-{% import "_rich_notes_editor.html" as rich_notes %}
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    {% import "_rich_notes_editor.html" as rich_notes %}
     <title>Notes Recorder</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
@@ -27,6 +27,7 @@
 
             <form id="start-recording-form" class="mt-3">
                 <div id="subject-radio-group"></div><br>
+                <button type="reset"> Clear selection </button>
                 <button type="submit" id="start-button" class="btn btn-primary">Start Recording</button>
             </form>
 
@@ -219,6 +220,7 @@
     <script src="{{ url_for('static', filename='vendor/jquery/jquery.min.js') }}"></script>
     <script src="{{ url_for('static', filename='vendor/mathquill/mathquill.js') }}"></script>
     <script src="{{ url_for('static', filename='app.js') }}"></script>
+    <script src="{{ url_for('static', filename='notes-list.js') }}"></script>
 </body>
 
 </html>

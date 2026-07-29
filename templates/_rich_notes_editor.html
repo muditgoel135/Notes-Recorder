@@ -44,12 +44,10 @@
                 data-table-command="delete-column">
                 -Col
             </button>
-            <button type="button" class="btn btn-outline-secondary rich-table-command"
-                data-table-command="merge-right">
+            <button type="button" class="btn btn-outline-secondary rich-table-command" data-table-command="merge-right">
                 Merge R
             </button>
-            <button type="button" class="btn btn-outline-secondary rich-table-command"
-                data-table-command="merge-down">
+            <button type="button" class="btn btn-outline-secondary rich-table-command" data-table-command="merge-down">
                 Merge D
             </button>
             <button type="button" class="btn btn-outline-secondary rich-table-command" data-table-command="split-cell">
@@ -64,9 +62,13 @@
             <span class="visually-hidden">Highlight color</span>
             <input type="color" class="rich-color-input" data-command="hiliteColor" value="#fff3a0">
         </label>
-        <input type="file" class="rich-image-input d-none" accept="image/png,image/jpeg,image/gif,image/webp">
+        <label>
+            <span>Input previous audio recording:</span>
+            <input type="file" class="rich-image-input d-none" accept="image/png,image/jpeg,image/gif,image/webp">
+        </label>
     </div>
-    <div id="{{ editor_id }}" class="rich-notes-surface" contenteditable="true" role="textbox"
-        aria-multiline="true">{{ content | rich_note }}</div>
+    <div id="{{ editor_id }}" class="rich-notes-surface" contenteditable="true" role="textbox" aria-multiline="true">
+        {{ content | rich_note }}
+    </div>
 </div>
 {% endmacro %}

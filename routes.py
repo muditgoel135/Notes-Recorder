@@ -1,8 +1,16 @@
+"""
+
+This module defines the Flask application routes for the Notes-Recorder application.
+It handles HTTP requests for managing notes, recordings, transcriptions, and
+associated metadata, coordinating between the database and external services.
+
+"""
+
+# Import required modules
 import os
 import re
 import uuid
 from datetime import datetime, timedelta
-
 import requests
 from flask import (
     render_template,
@@ -15,6 +23,7 @@ from flask import (
 )
 from werkzeug.utils import secure_filename
 
+# Import extensions.py and models.py
 from extensions import app, db
 from models import (
     ChatMessage,
@@ -25,11 +34,16 @@ from models import (
     Speaker,
     get_tag_descendant_ids,
 )
+
+# Import note_images.py and notes_query.py
+from note_images import collect_ollama_note_images
 from notes_query import (
     build_notes_query,
     parse_notes_filters_from_request,
     check_has_active_transcription,
 )
+
+# Import recordings.py
 from recordings import (
     ACTIVE_RECORDING_STATUS,
     allowed_file,
@@ -42,13 +56,24 @@ from recordings import (
     save_recording_chunk,
     duration_seconds_from_times,
 )
+
+# Import transcription.py
 from transcription import (
     enqueue_transcription,
     extract_key_points,
     format_transcript_with_speakers,
     is_internet_available,
+    transcription_executor,
 )
-from text_filters import render_markdown, rich_note_html_to_text, sanitize_rich_note_html
+
+# Import text_filters.py
+from text_filters import (
+    render_markdown,
+    rich_note_html_to_text,
+    sanitize_rich_note_html,
+)
+
+# Import config.py
 from config import (
     BASE_DIR,
     NOTE_IMAGES_DIR,
@@ -63,12 +88,14 @@ from config import (
     KEY_POINTS_PENDING,
     KEY_POINTS_FAILED,
 )
-from transcription import transcription_executor
 
 
 def serialize_chat_note(note, include_preview=True):
     preview_source = (
-        note.key_points or rich_note_html_to_text(note.notes_html) or note.transcription or ""
+        note.key_points
+        or rich_note_html_to_text(note.notes_html)
+        or note.transcription
+        or ""
     )
     preview = preview_source.strip().replace("\r\n", "\n")
     if len(preview) > 240:
@@ -149,6 +176,7 @@ def call_ollama_for_chat(session):
     context = "\n\n---\n\n".join(
         transcript_context_for_note(note) for note in session.notes
     )
+    note_images = collect_ollama_note_images(session.notes)
     messages = [
         {
             "role": "system",
@@ -156,11 +184,21 @@ def call_ollama_for_chat(session):
                 "You answer questions about the user's selected class recordings. "
                 "Use only the supplied recording context and prior chat messages. "
                 "If the answer is not supported by the selected recordings, say so. "
-                "When useful, cite recordings by subject/title/date rather than by ID.\n\n"
-                f"Selected recording context:\n{context}"
+                "When useful, cite recordings by subject/title/date rather than by ID."
             ),
         }
     ]
+    context_message = {
+        "role": "user",
+        "content": (
+            "Selected recording context follows. Images attached to this message were "
+            "embedded in the selected user notes.\n\n"
+            f"{context}"
+        ),
+    }
+    if note_images:
+        context_message["images"] = note_images
+    messages.append(context_message)
     messages.extend(
         {"role": message.role, "content": message.content}
         for message in session.messages
@@ -813,7 +851,10 @@ def update_note_rich_notes(note_id):
     )
     if should_regenerate:
         note.key_points_status = KEY_POINTS_PENDING
-    elif note.transcription_status not in {TRANSCRIPTION_PENDING, TRANSCRIPTION_PROCESSING}:
+    elif note.transcription_status not in {
+        TRANSCRIPTION_PENDING,
+        TRANSCRIPTION_PROCESSING,
+    }:
         note.key_points_status = KEY_POINTS_FAILED
         note.key_points_error = "Transcript is not available yet."
 

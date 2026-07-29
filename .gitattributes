@@ -1,0 +1,4 @@
+# Exclude dependencies included in the repo
+static/bootstrap-css/** linguist-vendored
+static/bootstrap-js/** linguist-vendored
+static/vendor/** linguist-vendored

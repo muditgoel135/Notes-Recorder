@@ -1,3 +1,10 @@
+"""
+
+This module handles audio recording management, including file saving, WebM metadata processing, and integration with Note and RecordingSession models.
+
+"""
+
+# Import required modules
 import datetime
 import json
 import os
@@ -6,6 +13,8 @@ import struct
 import subprocess
 import uuid
 from werkzeug.utils import secure_filename
+
+# Import extensions, models, config, and transciption
 from extensions import db
 from models import Note, RecordingSession
 from config import ALLOWED_EXTENSIONS, RECORDINGS_DIR, TRANSCRIPTION_PENDING

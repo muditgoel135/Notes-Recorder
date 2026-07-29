@@ -1,3 +1,11 @@
+"""
+
+Config variables for the Flask app.
+This module loads environment variables from a .env file and defines configuration constants for the Flask application, including paths, allowed file extensions, transcription and key points statuses, and API keys.
+
+"""
+
+# Import required modules
 import os
 from dotenv import load_dotenv
 

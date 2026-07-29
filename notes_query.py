@@ -1,6 +1,14 @@
+"""
+
+Query building functions for retrieving notes based on various filters.
+
+"""
+
+# Import required modules
 from flask import request
 from sqlalchemy import inspect, text
 
+# Import database instance and models
 from extensions import db
 from models import Note, Tag, Subject, get_tag_descendant_ids
 from config import (
