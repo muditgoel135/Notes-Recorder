@@ -9,6 +9,7 @@ and markdown content, including HTML parsing and sanitization for notes.
 import json
 import re
 from html.parser import HTMLParser
+from urllib.parse import urlparse
 import markdown
 from markupsafe import Markup, escape
 import bleach
@@ -34,12 +35,15 @@ ALLOWED_RICH_NOTE_TAGS = [
     "h6",
     "hr",
     "i",
+    "iframe",
     "img",
     "li",
     "ol",
     "p",
     "pre",
+    "s",
     "span",
+    "strike",
     "strong",
     "sub",
     "sup",
@@ -54,9 +58,20 @@ ALLOWED_RICH_NOTE_TAGS = [
 ]
 
 ALLOWED_RICH_NOTE_ATTRIBUTES = {
-    "*": ["style", "class"],
+    "*": ["style", "class", "dir"],
     "a": ["href", "title", "target", "rel"],
+    "iframe": [
+        "src",
+        "title",
+        "allow",
+        "allowfullscreen",
+        "loading",
+        "referrerpolicy",
+        "width",
+        "height",
+    ],
     "img": ["src", "alt", "title", "width", "height"],
+    "li": ["data-checked"],
     "td": ["colspan", "rowspan"],
     "th": ["colspan", "rowspan"],
     "span": ["style", "class", "data-latex", "contenteditable", "title", "id"],
@@ -68,20 +83,30 @@ ALLOWED_IMAGE_DATA_RE = re.compile(
     re.IGNORECASE,
 )
 
-RICH_NOTE_CSS_SANITIZER = (
-    CSSSanitizer(
-        allowed_css_properties=[
-            "background-color",
-            "color",
-            "font-weight",
-            "font-style",
-            "text-align",
-            "text-decoration",
-        ]
-    )
-    if CSSSanitizer
-    else None
+RICH_NOTE_CSS_SANITIZER = CSSSanitizer(
+    allowed_css_properties=[
+        "background-color",
+        "color",
+        "font-weight",
+        "font-style",
+        "font-size",
+        "font-family",
+        "text-align",
+        "text-decoration",
+        "direction",
+        "unicode-bidi",
+        "list-style-type",
+        "white-space",
+    ]
 )
+
+ALLOWED_VIDEO_EMBED_HOSTS = {
+    "www.youtube-nocookie.com",
+    "youtube-nocookie.com",
+    "www.youtube.com",
+    "youtube.com",
+    "player.vimeo.com",
+}
 
 
 class RichNoteTextParser(HTMLParser):
@@ -97,16 +122,25 @@ class RichNoteTextParser(HTMLParser):
 
         if tag in {"p", "div", "tr", "table", "h1", "h2", "h3", "h4", "h5", "h6"}:
             self.parts.append("\n")
+
         elif tag == "li":
             self.parts.append("\n- ")
+
         elif tag == "br":
             self.parts.append("\n")
+
         elif tag == "img":
             attrs_by_name = dict(attrs)
             alt = (attrs_by_name.get("alt") or "").strip()
             src = (attrs_by_name.get("src") or "").strip()
             if alt or src:
                 self.parts.append(f" [Image: {alt or src}] ")
+
+        elif tag == "iframe":
+            attrs_by_name = dict(attrs)
+            title = (attrs_by_name.get("title") or "Video").strip()
+            self.parts.append(f" [{title}] ")
+
         elif tag == "span":
             attrs_by_name = dict(attrs)
             classes = set((attrs_by_name.get("class") or "").split())
@@ -154,24 +188,30 @@ def normalize_list_indentation(text):
 
             if stack and stack[-1][0] == raw_indent:
                 indent = stack[-1][1]
+
             elif stack:
                 indent = stack[-1][1] + 4
+
             else:
                 indent = 0
 
             stack.append((raw_indent, indent))
             lines.append(" " * indent + line[match.end(1) :])
+
         elif line.strip():
             lines.append(line)
             stack = []
+
         else:
             lines.append(line)
+
     return "\n".join(lines)
 
 
 def render_markdown(text):
     if not text:
         return ""
+
     return Markup(
         markdown.markdown(
             normalize_list_indentation(text),
@@ -181,12 +221,28 @@ def render_markdown(text):
 
 
 def sanitize_rich_note_html(html):
+    """
+    Sanitize HTML content for rich notes, removing unsafe tags and attributes.
+
+    :param html: The HTML content to sanitize.
+    :type html: str or None
+    :return: Sanitized HTML content safe for rendering in the application.
+    :rtype: str or None
+    """
+
     html = (html or "").strip()
     if not html:
         return None
 
     html = re.sub(
         r"<(script|style)\b[^>]*>.*?</\1>", "", html, flags=re.IGNORECASE | re.DOTALL
+    )
+
+    html = re.sub(
+        r"<iframe\b(?P<attrs>[^>]*)>.*?</iframe>",
+        keep_allowed_iframe,
+        html,
+        flags=re.IGNORECASE | re.DOTALL,
     )
 
     if bleach is None:
@@ -200,27 +256,78 @@ def sanitize_rich_note_html(html):
         css_sanitizer=RICH_NOTE_CSS_SANITIZER,
         strip=True,
     )
+
     cleaned = bleach.linkify(cleaned, callbacks=[set_link_attrs])
     return cleaned.strip() or None
 
 
 def allow_rich_note_attribute(tag, name, value):
+    """
+    Callback function for bleach.clean to determine if a specific attribute
+    is allowed for a given HTML tag.
+
+    :param tag: The HTML tag name (e.g., 'a', 'img').
+    :type tag: str
+    :param name: The attribute name (e.g., 'href', 'src').
+    :type name: str
+    :param value: The attribute value (e.g., 'https://example.com').
+    :type value: str
+    :return: True if the attribute is allowed for the tag, False otherwise.
+    :rtype: bool
+    """
+
     allowed = set(ALLOWED_RICH_NOTE_ATTRIBUTES.get("*", []))
     allowed.update(ALLOWED_RICH_NOTE_ATTRIBUTES.get(tag, []))
     if name not in allowed:
         return False
 
+    if name == "dir":
+        return value in {"ltr", "rtl", "auto"}
+
+    if tag == "li" and name == "data-checked":
+        return value in {"true", "false"}
+
     if tag == "img" and name == "src" and (value or "").lower().startswith("data:"):
         return bool(ALLOWED_IMAGE_DATA_RE.match(value or ""))
 
+    if tag == "iframe" and name == "src":
+        return is_allowed_video_embed_src(value)
+
     if (
-        tag != "img"
+        tag not in {"img", "iframe"}
         and name in {"href", "src"}
         and (value or "").lower().startswith("data:")
     ):
         return False
 
     return True
+
+
+def keep_allowed_iframe(match):
+    src_match = re.search(
+        r"\bsrc=[\"']([^\"']+)[\"']", match.group("attrs"), flags=re.IGNORECASE
+    )
+
+    if not src_match or not is_allowed_video_embed_src(src_match.group(1)):
+        return ""
+
+    return match.group(0)
+
+
+def is_allowed_video_embed_src(value):
+    parsed = urlparse(value or "")
+    host = parsed.netloc.lower()
+    path = parsed.path or ""
+    if parsed.scheme != "https" or host not in ALLOWED_VIDEO_EMBED_HOSTS:
+        return False
+
+    if host.endswith("youtube.com") or host.endswith("youtube-nocookie.com"):
+        return path.startswith("/embed/")
+
+    if host == "player.vimeo.com":
+        return path.startswith("/video/")
+
+    return False
 
 
 def set_link_attrs(attrs, new=False):
@@ -242,7 +349,9 @@ def rich_note_html_to_text(html):
 def parse_json(value):
     if not value:
         return []
+
     try:
         return json.loads(value)
+
     except (TypeError, ValueError):
         return []

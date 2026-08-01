@@ -30,6 +30,11 @@ DEFAULT_SUBJECTS = [
 
 
 def init_database():
+    """
+    Initializes the database by creating all tables, seeding default subjects,
+    and performing necessary schema migrations for the Note and recording_session tables.
+    """
+
     db.create_all()
 
     if not Subject.query.first():
@@ -53,6 +58,7 @@ def init_database():
         "transcription_segments": "TEXT",
         "transcription_status": f"VARCHAR(20) NOT NULL DEFAULT '{TRANSCRIPTION_PENDING}'",
         "transcription_progress": "INTEGER DEFAULT 0",
+        "transcription_stage": "VARCHAR(20)",
         "transcription_error": "TEXT",
         "title": "VARCHAR(200)",
         "key_points": "TEXT",
@@ -90,6 +96,28 @@ def build_notes_query(
     tag_ids=None,
     subjects=None,
 ):
+    """
+    Builds a SQLAlchemy query to retrieve notes based on search terms and filters.
+
+    :param search: Search term for title, transcription, subject, etc.
+    :type search: str or None
+    :param date_from: Start date filter (inclusive).
+    :type date_from: str or None
+    :param date_to: End date filter (inclusive).
+    :type date_to: str or None
+    :param time_from: Start time filter (inclusive).
+    :type time_from: str or None
+    :param time_to: End time filter (inclusive).
+    :type time_to: str or None
+    :param tag_ids: List of tag IDs to filter by.
+    :type tag_ids: list of int or None
+    :param subjects: List of subjects to filter by.
+    :type subjects: list of str or None
+
+    :return: A SQLAlchemy query object ordered by Note.id descending.
+    :rtype: sqlalchemy.orm.query.Query
+    """
+
     query = Note.query
 
     if search:
@@ -131,16 +159,25 @@ def build_notes_query(
 
 
 def parse_notes_filters_from_request():
+    """
+    Parses notes filtering criteria from the current Flask request arguments.
+
+    :return: A dictionary containing filtered search, date, time, tag, and subject criteria.
+    :rtype: dict
+    """
+
     tag_ids = [
         int(tag_id)
         for tag_id in (request.args.get("tags") or "").split(",")
         if tag_id.strip().isdigit()
     ]
+
     subjects = [
         subject
         for subject in (request.args.get("subjects") or "").split(",")
         if subject.strip()
     ]
+
     return {
         "search": (request.args.get("q") or "").strip(),
         "date_from": (request.args.get("date_from") or "").strip() or None,
@@ -153,6 +190,13 @@ def parse_notes_filters_from_request():
 
 
 def check_has_active_transcription():
+    """
+    Checks if there are any notes currently awaiting or undergoing transcription or key point generation.
+
+    :return: True if at least one note is pending or processing, False otherwise.
+    :rtype: bool
+    """
+
     return db.session.query(
         Note.query.filter(
             db.or_(

@@ -25,6 +25,10 @@ SPEAKER_COLOR_PALETTE = [
 
 
 class Note(db.Model):
+    """
+    Represents a recorded note, containing transcription, key points, and associated metadata.
+    """
+
     id = db.Column(db.Integer, primary_key=True)
     date = db.Column(db.String(10), nullable=False)
     time = db.Column(db.String(8), nullable=False)
@@ -38,7 +42,9 @@ class Note(db.Model):
     transcription_status = db.Column(
         db.String(20), nullable=False, default=TRANSCRIPTION_PENDING
     )
+
     transcription_progress = db.Column(db.Integer, nullable=True, default=0)
+    transcription_stage = db.Column(db.String(20), nullable=True)
 
     transcription_error = db.Column(db.Text, nullable=True)
     title = db.Column(db.String(200), nullable=True)
@@ -46,6 +52,7 @@ class Note(db.Model):
     key_points_status = db.Column(
         db.String(20), nullable=False, default=KEY_POINTS_PENDING
     )
+
     key_points_generation = db.Column(db.Integer, nullable=False, default=0)
 
     key_points_error = db.Column(db.Text, nullable=True)
@@ -146,11 +153,13 @@ class ChatSession(db.Model):
         default=datetime.utcnow,
         onupdate=datetime.utcnow,
     )
+
     notes = db.relationship(
         "Note",
         secondary=chat_session_notes,
         backref=db.backref("chat_sessions", lazy="dynamic"),
     )
+
     messages = db.relationship(
         "ChatMessage",
         order_by="ChatMessage.created_at",
@@ -164,6 +173,7 @@ class ChatMessage(db.Model):
     chat_session_id = db.Column(
         db.Integer, db.ForeignKey("chat_session.id"), nullable=False, index=True
     )
+
     role = db.Column(db.String(20), nullable=False)
     content = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
@@ -205,4 +215,5 @@ def get_tag_descendant_ids(root_ids):
             if child_id not in result:
                 result.add(child_id)
                 stack.append(child_id)
+
     return result

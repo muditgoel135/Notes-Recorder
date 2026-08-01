@@ -49,11 +49,10 @@
                     <div>
                         <label class="form-label small mb-1" for="note-start-time-{{ note.id }}">Start time</label>
                         <input type="time" id="note-start-time-{{ note.id }}"
-                            class="form-control form-control-sm note-start-time-input"
-                            value="{{ note.start_time }}" step="1">
+                            class="form-control form-control-sm note-start-time-input" value="{{ note.start_time }}"
+                            step="1">
                     </div>
-                    <button type="button" class="btn btn-sm btn-primary save-datetime-btn"
-                        data-note-id="{{ note.id }}">
+                    <button type="button" class="btn btn-sm btn-primary save-datetime-btn" data-note-id="{{ note.id }}">
                         Save
                     </button>
                     <button type="button" class="btn btn-sm btn-secondary cancel-datetime-btn"
@@ -115,7 +114,7 @@
             </div>
             <div class="note-rich-notes-edit d-none mb-3" data-note-id="{{ note.id }}">
                 {{ rich_notes.editor("saved-rich-notes-editor-" ~ note.id, note.notes_html or '', '',
-                    'data-note-id="' ~ note.id ~ '"') }}
+                'data-note-id="' ~ note.id ~ '"') }}
                 <div class="d-flex align-items-center gap-2 mt-2">
                     <button class="btn btn-sm btn-primary save-rich-notes-btn" type="button"
                         data-note-id="{{ note.id }}">
@@ -209,11 +208,15 @@
             </div>
             {% endif %}
             {% elif note.transcription_status == "processing" %}
+            {% if note.transcription_stage == "diarizing" %}
+            <div class="small text-muted mb-1">Identifying speakers... {{ note.transcription_progress or 0 }}%</div>
+            {% else %}
             <div class="small text-muted mb-1">Transcribing... {{ note.transcription_progress or 0 }}%</div>
+            {% endif %}
             <div class="progress transcript-progress">
-                <div class="progress-bar transcript-progress-bar" role="progressbar"
-                    data-progress="{{ note.transcription_progress or 0 }}" aria-label="Transcription progress"
-                    aria-valuemin="0" aria-valuemax="100">
+                <div class="progress-bar transcript-progress-bar{% if note.transcription_stage == 'diarizing' %} progress-bar-diarizing{% endif %}"
+                    role="progressbar" data-progress="{{ note.transcription_progress or 0 }}"
+                    aria-label="Transcription progress" aria-valuemin="0" aria-valuemax="100">
                 </div>
             </div>
             {% elif note.transcription_status == "failed" %}

@@ -1,71 +1,192 @@
+{% macro icon(name) -%}
+{% if name == "align-left" %}
+<svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M4 6h14M4 12h10M4 18h16" />
+</svg>
+{% elif name == "align-center" %}
+<svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M6 6h12M8 12h8M4 18h16" />
+</svg>
+{% elif name == "align-right" %}
+<svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M6 6h14M10 12h10M4 18h16" />
+</svg>
+{% elif name == "align-justify" %}
+<svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M4 6h16M4 12h16M4 18h16" />
+</svg>
+{% elif name == "blockquote" %}
+<svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M8 10H5.5C5.5 7.8 6.6 6.4 9 5.5M19 10h-2.5c0-2.2 1.1-3.6 3.5-4.5M8.5 10v6h-5v-6h5Zm11 0v6h-5v-6h5Z" />
+</svg>
+{% elif name == "checklist" %}
+<svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="m4 7 2 2 4-4M13 7h7M4 17l2 2 4-4M13 17h7" />
+</svg>
+{% elif name == "clear" %}
+<svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M5 5h10M9 5l8 14M8 19h8M15 12l4-4M19 12l-4-4" />
+</svg>
+{% elif name == "code" %}
+<svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="m9 8-4 4 4 4M15 8l4 4-4 4M13 5l-2 14" />
+</svg>
+{% elif name == "highlight" %}
+<svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="m4 20 4-1 10-10-3-3L5 16l-1 4ZM13 8l3 3M3 21h18" />
+</svg>
+{% elif name == "image" %}
+<svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M4 5h16v14H4zM8 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3ZM4 16l5-5 4 4 2-2 5 5" />
+</svg>
+{% elif name == "indent-decrease" %}
+<svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M4 6h16M12 12h8M12 18h8M8 10l-4 2 4 2v-4Z" />
+</svg>
+{% elif name == "indent-increase" %}
+<svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M4 6h16M12 12h8M12 18h8M4 10l4 2-4 2v-4Z" />
+</svg>
+{% elif name == "link" %}
+<svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M10 7h-2a5 5 0 0 0 0 10h2M14 7h2a5 5 0 0 1 0 10h-2M9 12h6" />
+</svg>
+{% elif name == "ordered-list" %}
+<svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M10 6h10M10 12h10M10 18h10M4 5h1v4M4 9h2M4 11h2l-2 4h2M4 17h2v3H4" />
+</svg>
+{% elif name == "rtl" %}
+<svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M19 6H9a4 4 0 0 0 0 8h2M15 6v14M19 6v14M7 17l-3-3 3-3" />
+</svg>
+{% elif name == "text-color" %}
+<svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M5 19h14M8 16l4-11 4 11M9.5 12h5" />
+</svg>
+{% elif name == "unordered-list" %}
+<svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01" />
+</svg>
+{% elif name == "video" %}
+<svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M4 6h12v12H4zM16 10l4-3v10l-4-3M8 6v12M12 6v12" />
+</svg>
+{% endif %}
+{%- endmacro %}
+
+{% macro icon_button(label, icon_name, classes='', attrs='') %}
+<button type="button" class="btn btn-outline-secondary rich-icon-btn {{ classes }}" title="{{ label }}"
+    aria-label="{{ label }}" {{ attrs | safe }}>
+    {{ icon(icon_name) }}
+</button>
+{% endmacro %}
+
 {% macro editor(editor_id, content='', extra_classes='', data_attrs='') %}
 <div class="rich-notes-editor {{ extra_classes }}" data-rich-notes-editor {{ data_attrs | safe }}>
     <div class="rich-notes-toolbar btn-toolbar gap-1 mb-2" role="toolbar" aria-label="Rich notes formatting">
-        <div class="btn-group btn-group-sm" role="group">
-            <button type="button" class="btn btn-outline-secondary rich-command" data-command="formatBlock"
-                data-value="h1">H1</button>
-            <button type="button" class="btn btn-outline-secondary rich-command" data-command="formatBlock"
-                data-value="h2">H2</button>
-            <button type="button" class="btn btn-outline-secondary rich-command" data-command="formatBlock"
-                data-value="h3">H3</button>
-            <button type="button" class="btn btn-outline-secondary rich-command" data-command="formatBlock"
-                data-value="p">P</button>
+        <select class="form-select form-select-sm rich-format-select" title="Text style" aria-label="Text style">
+            <option value="p">Normal</option>
+            <option value="h1">Heading 1</option>
+            <option value="h2">Heading 2</option>
+            <option value="h3">Heading 3</option>
+            <option value="h4">Heading 4</option>
+            <option value="h5">Heading 5</option>
+            <option value="h6">Heading 6</option>
+        </select>
+        <select class="form-select form-select-sm rich-font-size-select" title="Font size" aria-label="Font size">
+            <option value="">Normal</option>
+            <option value="0.875rem">Small</option>
+            <option value="1.25rem">Large</option>
+            <option value="1.5rem">Huge</option>
+        </select>
+        <select class="form-select form-select-sm rich-font-family-select" title="Font family" aria-label="Font family">
+            <option value="">Sans Serif</option>
+            <option value="Arial, sans-serif">Arial</option>
+            <option value="Georgia, serif">Georgia</option>
+            <option value="'Times New Roman', serif">Times New Roman</option>
+            <option value="'Courier New', monospace">Courier New</option>
+            <option value="Verdana, sans-serif">Verdana</option>
+        </select>
+
+        <div class="btn-group btn-group-sm" role="group" aria-label="Text formatting">
+            <button type="button" class="btn btn-outline-secondary rich-command rich-text-icon" data-command="bold"
+                title="Bold" aria-label="Bold"><strong>B</strong></button>
+            <button type="button" class="btn btn-outline-secondary rich-command rich-text-icon" data-command="italic"
+                title="Italic" aria-label="Italic"><em>I</em></button>
+            <button type="button" class="btn btn-outline-secondary rich-command rich-text-icon" data-command="underline"
+                title="Underline" aria-label="Underline"><span class="rich-underline-icon">U</span></button>
+            <button type="button" class="btn btn-outline-secondary rich-command rich-text-icon"
+                data-command="strikeThrough" title="Strikethrough" aria-label="Strikethrough"><s>S</s></button>
         </div>
-        <div class="btn-group btn-group-sm" role="group">
-            <button type="button" class="btn btn-outline-secondary rich-command" data-command="bold">B</button>
-            <button type="button" class="btn btn-outline-secondary rich-command" data-command="italic">I</button>
-            <button type="button" class="btn btn-outline-secondary rich-command" data-command="underline">U</button>
+
+        <div class="btn-group btn-group-sm" role="group" aria-label="Script and direction">
+            <button type="button" class="btn btn-outline-secondary rich-command rich-script-icon"
+                data-command="subscript" title="Subscript" aria-label="Subscript">X<sub>2</sub></button>
+            <button type="button" class="btn btn-outline-secondary rich-command rich-script-icon"
+                data-command="superscript" title="Superscript" aria-label="Superscript">X<sup>2</sup></button>
+            {{ icon_button("Right-to-left", "rtl", "rich-rtl-btn") }}
         </div>
-        <div class="btn-group btn-group-sm" role="group">
-            <button type="button" class="btn btn-outline-secondary rich-command"
-                data-command="insertUnorderedList">List</button>
-            <button type="button" class="btn btn-outline-secondary rich-command"
-                data-command="insertOrderedList">1.</button>
-            <button type="button" class="btn btn-outline-secondary rich-command" data-command="outdent">Out</button>
-            <button type="button" class="btn btn-outline-secondary rich-command" data-command="indent">In</button>
+
+        <div class="btn-group btn-group-sm" role="group" aria-label="Indentation">
+            {{ icon_button("Decrease indent", "indent-decrease", "rich-command", 'data-command="outdent"') }}
+            {{ icon_button("Increase indent", "indent-increase", "rich-command", 'data-command="indent"') }}
         </div>
-        <div class="btn-group btn-group-sm" role="group">
-            <button type="button" class="btn btn-outline-secondary rich-link-btn">Link</button>
-            <button type="button" class="btn btn-outline-secondary rich-table-btn">Table</button>
-            <button type="button" class="btn btn-outline-secondary rich-image-btn">Image</button>
-            <button type="button" class="btn btn-outline-secondary rich-math-btn">Math</button>
+
+        <div class="btn-group btn-group-sm" role="group" aria-label="Alignment">
+            {{ icon_button("Align left", "align-left", "rich-command", 'data-command="justifyLeft"') }}
+            {{ icon_button("Align center", "align-center", "rich-command", 'data-command="justifyCenter"') }}
+            {{ icon_button("Align right", "align-right", "rich-command", 'data-command="justifyRight"') }}
+            {{ icon_button("Justify", "align-justify", "rich-command", 'data-command="justifyFull"') }}
         </div>
-        <div class="btn-group btn-group-sm" role="group" aria-label="Table editing">
-            <button type="button" class="btn btn-outline-secondary rich-table-command" data-table-command="add-row">
-                +Row
-            </button>
-            <button type="button" class="btn btn-outline-secondary rich-table-command" data-table-command="delete-row">
-                -Row
-            </button>
-            <button type="button" class="btn btn-outline-secondary rich-table-command" data-table-command="add-column">
-                +Col
-            </button>
-            <button type="button" class="btn btn-outline-secondary rich-table-command"
-                data-table-command="delete-column">
-                -Col
-            </button>
-            <button type="button" class="btn btn-outline-secondary rich-table-command" data-table-command="merge-right">
-                Merge R
-            </button>
-            <button type="button" class="btn btn-outline-secondary rich-table-command" data-table-command="merge-down">
-                Merge D
-            </button>
-            <button type="button" class="btn btn-outline-secondary rich-table-command" data-table-command="split-cell">
-                Split
-            </button>
+
+        <div class="btn-group btn-group-sm" role="group" aria-label="Lists and blocks">
+            {{ icon_button("Numbered list", "ordered-list", "rich-command", 'data-command="insertOrderedList"') }}
+            {{ icon_button("Bulleted list", "unordered-list", "rich-command", 'data-command="insertUnorderedList"') }}
+            {{ icon_button("Checklist", "checklist", "rich-checklist-btn") }}
+            {{ icon_button("Blockquote", "blockquote", "rich-blockquote-btn") }}
+            {{ icon_button("Code block", "code", "rich-code-block-btn") }}
         </div>
-        <label class="rich-color-label" title="Text color">
-            <span class="visually-hidden">Text color</span>
+
+        <div class="btn-group btn-group-sm" role="group" aria-label="Insert">
+            {{ icon_button("Insert link", "link", "rich-link-btn") }}
+            {{ icon_button("Insert image", "image", "rich-image-btn") }}
+            {{ icon_button("Insert video embed", "video", "rich-video-btn") }}
+            <button type="button" class="btn btn-outline-secondary rich-icon-btn rich-math-btn" title="Formula"
+                aria-label="Formula"><span class="rich-formula-icon">f<sub>x</sub></span></button>
+        </div>
+
+        <label class="rich-color-label" title="Text color" aria-label="Text color">
+            {{ icon("text-color") }}
             <input type="color" class="rich-color-input" data-command="foreColor" value="#212529">
         </label>
-        <label class="rich-color-label" title="Highlight color">
-            <span class="visually-hidden">Highlight color</span>
+        <label class="rich-color-label rich-highlight-label" title="Highlight color" aria-label="Highlight color">
+            {{ icon("highlight") }}
             <input type="color" class="rich-color-input" data-command="hiliteColor" value="#fff3a0">
         </label>
-        <label>
-            <span>Input previous audio recording:</span>
-            <input type="file" class="rich-image-input d-none" accept="image/png,image/jpeg,image/gif,image/webp">
-        </label>
+
+        {{ icon_button("Clear formatting", "clear", "rich-command", 'data-command="removeFormat"') }}
+
+        <details class="rich-table-tools">
+            <summary class="btn btn-outline-secondary btn-sm">Table</summary>
+            <div class="rich-table-menu btn-group btn-group-sm" role="group" aria-label="Table editing">
+                <button type="button" class="btn btn-outline-secondary rich-table-btn">Insert</button>
+                <button type="button" class="btn btn-outline-secondary rich-table-command"
+                    data-table-command="add-row">+Row</button>
+                <button type="button" class="btn btn-outline-secondary rich-table-command"
+                    data-table-command="delete-row">-Row</button>
+                <button type="button" class="btn btn-outline-secondary rich-table-command"
+                    data-table-command="add-column">+Col</button>
+                <button type="button" class="btn btn-outline-secondary rich-table-command"
+                    data-table-command="delete-column">-Col</button>
+                <button type="button" class="btn btn-outline-secondary rich-table-command"
+                    data-table-command="merge-right">Merge R</button>
+                <button type="button" class="btn btn-outline-secondary rich-table-command"
+                    data-table-command="merge-down">Merge D</button>
+                <button type="button" class="btn btn-outline-secondary rich-table-command"
+                    data-table-command="split-cell">Split</button>
+            </div>
+        </details>
+        <input type="file" class="rich-image-input d-none" accept="image/png,image/jpeg,image/gif,image/webp">
     </div>
     <div id="{{ editor_id }}" class="rich-notes-surface" contenteditable="true" role="textbox" aria-multiline="true">
         {{ content | rich_note }}

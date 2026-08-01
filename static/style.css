@@ -10,6 +10,80 @@
 
 .rich-notes-toolbar {
     align-items: center;
+    padding: 0.35rem;
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    background-color: #f8f9fa;
+}
+
+.rich-notes-toolbar .form-select {
+    width: auto;
+    min-width: 7.25rem;
+}
+
+.rich-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 31px;
+    height: 31px;
+    padding: 0.25rem 0.45rem;
+}
+
+.rich-icon-btn svg,
+.rich-color-label svg {
+    width: 1.05rem;
+    height: 1.05rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.rich-text-icon,
+.rich-script-icon {
+    min-width: 31px;
+    height: 31px;
+    font-size: 1rem;
+    line-height: 1;
+}
+
+.rich-underline-icon {
+    text-decoration: underline;
+    text-underline-offset: 0.15rem;
+}
+
+.rich-formula-icon {
+    font-family: Georgia, serif;
+    font-style: italic;
+    font-size: 1rem;
+}
+
+.rich-table-tools {
+    position: relative;
+}
+
+.rich-table-tools>summary {
+    list-style: none;
+}
+
+.rich-table-tools>summary::-webkit-details-marker {
+    display: none;
+}
+
+.rich-table-menu {
+    position: absolute;
+    z-index: 3;
+    top: calc(100% + 0.25rem);
+    right: 0;
+    flex-wrap: wrap;
+    min-width: 260px;
+    padding: 0.35rem;
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    background-color: #fff;
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.08);
 }
 
 .rich-notes-surface {
@@ -48,6 +122,92 @@
     height: auto;
     display: block;
     margin: 0.5rem 0;
+}
+
+.rich-notes-surface blockquote,
+.rich-notes-content blockquote {
+    margin: 0.75rem 0;
+    padding: 0.25rem 0 0.25rem 0.85rem;
+    border-left: 4px solid #ced4da;
+    color: #495057;
+}
+
+.rich-notes-surface pre,
+.rich-notes-content pre {
+    max-width: 100%;
+    overflow-x: auto;
+    margin: 0.75rem 0;
+    padding: 0.75rem;
+    border-radius: 0.375rem;
+    background-color: #f1f3f5;
+    white-space: pre-wrap;
+}
+
+.rich-notes-surface code,
+.rich-notes-content code {
+    font-family: "Courier New", monospace;
+}
+
+.rich-checklist {
+    padding-left: 0;
+    list-style: none;
+}
+
+.rich-checklist li {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.45rem;
+    margin: 0.2rem 0;
+}
+
+.rich-checklist li[data-checked="true"] {
+    color: #6c757d;
+    text-decoration: line-through;
+}
+
+.rich-checklist-box {
+    flex: 0 0 auto;
+    width: 1rem;
+    height: 1rem;
+    margin-top: 0.2rem;
+    border: 1px solid #6c757d;
+    border-radius: 0.2rem;
+    background-color: #fff;
+    cursor: pointer;
+}
+
+.rich-checklist li[data-checked="true"] .rich-checklist-box {
+    border-color: #0d6efd;
+    background-color: #0d6efd;
+}
+
+.rich-checklist li[data-checked="true"] .rich-checklist-box::after {
+    content: "";
+    display: block;
+    width: 0.35rem;
+    height: 0.6rem;
+    margin: 0.08rem 0 0 0.3rem;
+    border: solid #fff;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+.rich-video-embed {
+    position: relative;
+    width: 100%;
+    max-width: 720px;
+    aspect-ratio: 16 / 9;
+    margin: 0.75rem 0;
+    background-color: #111;
+}
+
+.rich-video-embed iframe {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
 }
 
 .math-field {
@@ -177,6 +337,10 @@ body.sync-enabled .transcript-word:hover {
 
 .transcript-progress {
     height: 6px;
+}
+
+.transcript-progress-bar.progress-bar-diarizing {
+    background-color: #6f42c1;
 }
 
 ul.tag-tree,

@@ -647,7 +647,7 @@ function renderSubjectRadios() {
             <input type="radio" name="subject" value="${escapeHtml(subject.name)}" required>
             ${escapeHtml(subject.name)} &nbsp; &nbsp;
         </label>
-    `).join("");
+    `).join("") + ("<button type='reset' class='btn btn-secondary'> Clear selection </button>");
     const toReselect = container.querySelector(`input[value="${CSS.escape(previousValue)}"]`);
     if (toReselect) {
         toReselect.checked = true;

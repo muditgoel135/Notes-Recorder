@@ -44,6 +44,22 @@ def note_download_basename(note):
 
 
 def save_audio_file(file_storage, subject, start_time=None, end_time=None):
+    """
+    Saves an uploaded audio file, updates WebM metadata if necessary,
+    and creates a corresponding Note record in the database.
+
+    :param file_storage: The uploaded file storage object.
+    :type file_storage: werkzeug.datastructures.FileStorage
+    :param subject: The subject associated with the note.
+    :type subject: str
+    :param start_time: Optional start time of the recording in HH:MM:SS format
+    :type start_time: str
+    :param end_time: Optional end time of the recording in HH:MM:SS format
+    :type end_time: str
+    :return: The newly created Note object.
+    :rtype: Note
+    """
+
     now = datetime.datetime.now()
     date = now.strftime("%Y-%m-%d")
     start_time = start_time or now.strftime("%H:%M:%S")
@@ -78,6 +94,21 @@ def save_audio_file(file_storage, subject, start_time=None, end_time=None):
 
 
 def create_recording_session(subject, mime_type, extension, start_time=None):
+    """
+    Creates a new recording session for managing audio chunks.
+
+    :param subject: The subject of the recording.
+    :type subject: str
+    :param mime_type: The MIME type of the recording.
+    :type mime_type: str
+    :param extension: The file extension of the recording.
+    :type extension: str
+    :param start_time: Optional start time string.
+    :type start_time: str
+    :return: The created RecordingSession object.
+    :rtype: RecordingSession
+    """
+
     now = datetime.datetime.now()
     session = RecordingSession(
         session_key=uuid.uuid4().hex,
@@ -126,6 +157,18 @@ def save_recording_chunk(session, chunk_file, segment_index, chunk_index):
 
 
 def finish_recording_session(session, end_time=None):
+    """
+    Finalizes a recording session by assembling chunks into a single file and creating a corresponding Note.
+
+    :param session: The RecordingSession object to finalize.
+    :type session: RecordingSession
+    :param end_time: Optional end time of the recording in HH:MM:SS format
+    :type end_time: str
+    :return: The newly created Note object.
+    :rtype: Note
+    :raises ValueError: If the session is not active, has no chunks, or if there is an error during assembly.
+    """
+
     if session.status == FINISHED_RECORDING_STATUS and session.note_id:
         return session.note
 
@@ -155,6 +198,7 @@ def finish_recording_session(session, end_time=None):
     try:
         if len(segment_paths) == 1:
             shutil.move(segment_paths[0], final_path)
+
         else:
             concat_segments(segment_paths, final_path)
 
@@ -208,6 +252,17 @@ def build_recording_path(session, now):
 
 
 def build_segment_files(session, chunks):
+    """
+    Combine audio chunks into segment files based on their IDs.
+
+    :param session: The RecordingSession object containing the chunks.
+    :type session: RecordingSession
+    :param chunks: A list of chunk filenames to be combined.
+    :type chunks: list of str
+    :return: A list of paths to the combined segment files.
+    :rtype: list of str
+    """
+
     chunk_dir = get_session_chunk_dir(session)
     segments = {}
     for filename in chunks:
@@ -230,6 +285,20 @@ def build_segment_files(session, chunks):
 
 
 def concat_segments(segment_paths, final_path):
+    """
+    Concatenate multiple audio segments into a single file using FFmpeg.
+
+    :param segment_paths: A list of paths to the audio segments to be concatenated.
+    :type segment_paths: list of str
+    :param final_path: The path where the concatenated file will be saved.
+    :type final_path: str
+    :raises subprocess.CalledProcessError: If FFmpeg fails to concatenate the segments.
+    :raises FileNotFoundError: If FFmpeg is not found in the system path.
+    :raises OSError: If there is an OS-related error during the concatenation process.
+    :return: None
+    :rtype: None
+    """
+
     list_path = f"{final_path}.concat.txt"
     with open(list_path, "w", encoding="utf-8") as list_file:
         for path in segment_paths:
@@ -261,6 +330,18 @@ def concat_segments(segment_paths, final_path):
 
 
 def duration_seconds_from_times(start_time, end_time):
+    """
+    Calculate the duration in seconds between two time strings.
+
+    :param start_time: The starting time as a string ("HH:MM:SS").
+    :type start_time: str
+    :param end_time: The ending time as a string ("HH:MM:SS").
+    :type end_time: str
+    :return: Duration in seconds as an integer, or None if inputs are invalid.
+    :rtype: int or None
+    :raises ValueError: If the time strings are not in the correct format.
+    """
+
     if not start_time or not end_time:
         return None
 
@@ -278,6 +359,18 @@ def duration_seconds_from_times(start_time, end_time):
 
 
 def add_webm_duration_metadata(file_path, duration_seconds):
+    """
+    Add duration metadata to a WebM file to enable seeking and duration display.
+
+    :param file_path: Path to the WebM file.
+    :type file_path: str
+    :param duration_seconds: Duration of the recording in seconds.
+    :type duration_seconds: int
+    :return: True if metadata was successfully added, False otherwise.
+    :rtype: bool
+    :raises OSError: If there is an error reading or writing the file.
+    """
+
     if duration_seconds is None or duration_seconds <= 0:
         return False
 
@@ -306,6 +399,18 @@ def add_webm_duration_metadata(file_path, duration_seconds):
 
 
 def patch_webm_duration(data, duration_seconds):
+    """
+    Patches the duration into the WebM data bytes.
+
+    :param data: The bytearray of the WebM file.
+    :type data: bytearray
+    :param duration_seconds: Duration of the recording in seconds.
+    :type duration_seconds: int
+    :return: The patched bytearray if successful, None otherwise.
+    :rtype: bytearray | None
+    :raises ValueError: If the WebM structure is invalid or cannot be patched.
+    """
+
     info_pos = data.find(WEBM_INFO_ID)
     if info_pos < 0:
         return None
@@ -349,6 +454,7 @@ def patch_webm_duration(data, duration_seconds):
         tracks_pos = data.find(WEBM_TRACKS_ID, content_pos)
         if tracks_pos < 0:
             return None
+
         insert_pos = tracks_pos
 
     new_info_size = info_size + len(duration_element)

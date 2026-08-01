@@ -97,6 +97,14 @@ pip install -r requirements.txt
 
 [ffmpeg](https://ffmpeg.org/download.html) must be installed and available on `PATH` — it's used both by Whisper to decode audio and to denoise recordings before transcription.
 
+On Windows, install the **full-shared** build (which ships the DLLs that `pyannote.audio`/`torchcodec` need to decode audio). The regular (static) builds only ship `ffmpeg.exe`/`ffprobe.exe` and will trigger a warning like `torchcodec is not installed correctly so built-in audio decoding will fail`, leaving speaker diarization unable to load audio. The easiest way to get the shared build is:
+
+```powershell
+winget install --exact --id Gyan.FFmpeg.Shared
+```
+
+After installing (or updating any PATH-related install), restart your terminal so the new `PATH` takes effect. Verify it with `ffmpeg -version`.
+
 Optional environment variables (e.g. in a `.env` file):
 
 - `SECRET_KEY` — Flask session secret.

@@ -96,6 +96,180 @@ function insertHtmlAtCursor(editor, html) {
     editor.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
+function dispatchRichEditorInput(editor) {
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function selectionRangeInEditor(editor) {
+    const selection = window.getSelection();
+    if (!editor || !selection || selection.rangeCount === 0) {
+        return null;
+    }
+
+    const range = selection.getRangeAt(0);
+    const container = range.commonAncestorContainer;
+    const element = container.nodeType === Node.ELEMENT_NODE ? container : container.parentElement;
+    return element && editor.contains(element) ? range : null;
+}
+
+function wrapSelectionWithElement(editor, element) {
+    const range = selectionRangeInEditor(editor);
+    if (!range || range.collapsed) {
+        alert("Select text to format first.");
+        return false;
+    }
+
+    element.appendChild(range.extractContents());
+    range.insertNode(element);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    const nextRange = document.createRange();
+    nextRange.selectNodeContents(element);
+    selection.addRange(nextRange);
+    dispatchRichEditorInput(editor);
+    return true;
+}
+
+function applyInlineStyle(wrapper, styles) {
+    const editor = getRichEditorSurface(wrapper);
+    if (!editor) {
+        return;
+    }
+    focusRichEditor(editor);
+    const span = document.createElement("span");
+    Object.entries(styles).forEach(([property, value]) => {
+        if (value) {
+            span.style[property] = value;
+        }
+    });
+    wrapSelectionWithElement(editor, span);
+}
+
+function selectedBlockInEditor(editor) {
+    const range = selectionRangeInEditor(editor);
+    if (!range) {
+        return null;
+    }
+    const node = range.startContainer.nodeType === Node.ELEMENT_NODE
+        ? range.startContainer
+        : range.startContainer.parentElement;
+    return closestElement(node, "p, div, h1, h2, h3, h4, h5, h6, li, blockquote, pre", editor) || editor;
+}
+
+function toggleRtlBlock(wrapper) {
+    const editor = getRichEditorSurface(wrapper);
+    const block = selectedBlockInEditor(editor);
+    if (!editor || !block) {
+        return;
+    }
+    const isRtl = block.style.direction === "rtl" || block.getAttribute("dir") === "rtl";
+    if (isRtl) {
+        block.style.direction = "";
+        block.style.unicodeBidi = "";
+        block.removeAttribute("dir");
+    } else {
+        block.style.direction = "rtl";
+        block.style.unicodeBidi = "plaintext";
+        block.setAttribute("dir", "rtl");
+    }
+    dispatchRichEditorInput(editor);
+}
+
+function insertChecklist(wrapper) {
+    const editor = getRichEditorSurface(wrapper);
+    if (!editor) {
+        return;
+    }
+    insertHtmlAtCursor(
+        editor,
+        '<ul class="rich-checklist"><li data-checked="false"><span class="rich-checklist-box" contenteditable="false"></span>Task</li></ul><p><br></p>'
+    );
+}
+
+function insertCodeBlock(wrapper) {
+    const editor = getRichEditorSurface(wrapper);
+    if (!editor) {
+        return;
+    }
+    const range = selectionRangeInEditor(editor);
+    if (range && !range.collapsed) {
+        const text = range.toString();
+        range.deleteContents();
+        range.insertNode(document.createRange().createContextualFragment(`<pre><code>${escapeHtml(text)}</code></pre><p><br></p>`));
+        dispatchRichEditorInput(editor);
+        return;
+    }
+    insertHtmlAtCursor(editor, "<pre><code><br></code></pre><p><br></p>");
+}
+
+function normalizeVideoEmbed(input) {
+    const value = (input || "").trim();
+    if (!value) {
+        return null;
+    }
+
+    const iframeMatch = value.match(/<iframe\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/i);
+    const source = iframeMatch ? iframeMatch[1] : value;
+
+    let url;
+    try {
+        url = new URL(source, window.location.origin);
+    } catch (error) {
+        return null;
+    }
+
+    const host = url.hostname.toLowerCase().replace(/^www\./, "");
+    let embedUrl = "";
+    let title = "Embedded video";
+
+    if (host === "youtu.be") {
+        const id = url.pathname.split("/").filter(Boolean)[0];
+        if (id) {
+            embedUrl = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}`;
+            title = "YouTube video";
+        }
+    } else if (host === "youtube.com" || host === "m.youtube.com" || host === "youtube-nocookie.com") {
+        const pathParts = url.pathname.split("/").filter(Boolean);
+        const id = url.searchParams.get("v")
+            || (pathParts[0] === "embed" ? pathParts[1] : "")
+            || (pathParts[0] === "shorts" ? pathParts[1] : "");
+        if (id) {
+            embedUrl = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}`;
+            title = "YouTube video";
+        }
+    } else if (host === "vimeo.com" || host === "player.vimeo.com") {
+        const pathParts = url.pathname.split("/").filter(Boolean);
+        const id = host === "player.vimeo.com" && pathParts[0] === "video" ? pathParts[1] : pathParts[0];
+        if (id && /^\d+$/.test(id)) {
+            embedUrl = `https://player.vimeo.com/video/${encodeURIComponent(id)}`;
+            title = "Vimeo video";
+        }
+    }
+
+    if (!embedUrl) {
+        return null;
+    }
+
+    return `<div class="rich-video-embed"><iframe src="${embedUrl}" title="${title}" width="560" height="315" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div><p><br></p>`;
+}
+
+function insertVideoEmbed(wrapper) {
+    const editor = getRichEditorSurface(wrapper);
+    if (!editor) {
+        return;
+    }
+    const embedInput = prompt("Paste a YouTube or Vimeo URL/embed code:");
+    if (embedInput === null) {
+        return;
+    }
+    const html = normalizeVideoEmbed(embedInput);
+    if (!html) {
+        alert("Use a YouTube or Vimeo URL/embed code.");
+        return;
+    }
+    insertHtmlAtCursor(editor, html);
+}
+
 function getMathModal() {
     return document.getElementById("math-editor-modal");
 }
@@ -817,12 +991,28 @@ activeNotesEditor.addEventListener("input", () => {
 
 document.addEventListener("click", async (event) => {
     const commandButton = event.target.closest(".rich-command");
+    const rtlButton = event.target.closest(".rich-rtl-btn");
     const linkButton = event.target.closest(".rich-link-btn");
     const tableButton = event.target.closest(".rich-table-btn");
     const tableCommandButton = event.target.closest(".rich-table-command");
     const imageButton = event.target.closest(".rich-image-btn");
+    const videoButton = event.target.closest(".rich-video-btn");
     const mathButton = event.target.closest(".rich-math-btn");
+    const checklistButton = event.target.closest(".rich-checklist-btn");
+    const checklistBox = event.target.closest(".rich-checklist-box");
+    const blockquoteButton = event.target.closest(".rich-blockquote-btn");
+    const codeBlockButton = event.target.closest(".rich-code-block-btn");
     const existingMath = event.target.closest("span.math-field[data-latex]");
+
+    if (checklistBox) {
+        const item = checklistBox.closest("li[data-checked]");
+        const editor = checklistBox.closest(".rich-notes-surface");
+        if (item && editor && editor.isContentEditable) {
+            item.dataset.checked = item.dataset.checked === "true" ? "false" : "true";
+            dispatchRichEditorInput(editor);
+        }
+        return;
+    }
 
     if (existingMath) {
         const editor = existingMath.closest(".rich-notes-surface");
@@ -834,6 +1024,26 @@ document.addEventListener("click", async (event) => {
 
     if (mathButton) {
         openMathEditor(getRichEditorSurface(mathButton.closest("[data-rich-notes-editor]")));
+        return;
+    }
+
+    if (rtlButton) {
+        toggleRtlBlock(rtlButton.closest("[data-rich-notes-editor]"));
+        return;
+    }
+
+    if (checklistButton) {
+        insertChecklist(checklistButton.closest("[data-rich-notes-editor]"));
+        return;
+    }
+
+    if (blockquoteButton) {
+        runRichCommand(blockquoteButton.closest("[data-rich-notes-editor]"), "formatBlock", "blockquote");
+        return;
+    }
+
+    if (codeBlockButton) {
+        insertCodeBlock(codeBlockButton.closest("[data-rich-notes-editor]"));
         return;
     }
 
@@ -879,6 +1089,11 @@ document.addEventListener("click", async (event) => {
         return;
     }
 
+    if (videoButton) {
+        insertVideoEmbed(videoButton.closest("[data-rich-notes-editor]"));
+        return;
+    }
+
     if (imageButton) {
         const input = imageButton.closest("[data-rich-notes-editor]").querySelector(".rich-image-input");
         input.click();
@@ -894,6 +1109,41 @@ document.addEventListener("mousedown", (event) => {
 document.addEventListener("change", async (event) => {
     const colorInput = event.target.closest(".rich-color-input");
     const imageInput = event.target.closest(".rich-image-input");
+    const formatSelect = event.target.closest(".rich-format-select");
+    const fontSizeSelect = event.target.closest(".rich-font-size-select");
+    const fontFamilySelect = event.target.closest(".rich-font-family-select");
+
+    if (formatSelect) {
+        runRichCommand(
+            formatSelect.closest("[data-rich-notes-editor]"),
+            "formatBlock",
+            formatSelect.value || "p"
+        );
+        formatSelect.value = "p";
+        return;
+    }
+
+    if (fontSizeSelect) {
+        if (fontSizeSelect.value) {
+            applyInlineStyle(
+                fontSizeSelect.closest("[data-rich-notes-editor]"),
+                { fontSize: fontSizeSelect.value }
+            );
+        }
+        fontSizeSelect.value = "";
+        return;
+    }
+
+    if (fontFamilySelect) {
+        if (fontFamilySelect.value) {
+            applyInlineStyle(
+                fontFamilySelect.closest("[data-rich-notes-editor]"),
+                { fontFamily: fontFamilySelect.value }
+            );
+        }
+        fontFamilySelect.value = "";
+        return;
+    }
 
     if (colorInput) {
         runRichCommand(

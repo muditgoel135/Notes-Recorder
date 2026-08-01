@@ -13,6 +13,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import warnings
 import wave
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -44,6 +45,12 @@ from config import (
     OLLAMA_CHAT_URL,
 )
 
+STAGE_TRANSCRIBING = "transcribing"
+STAGE_DIARIZING = "diarizing"
+
+DIARIZATION_START_PERCENT = 90
+DIARIZATION_END_PERCENT = 99
+
 transcription_executor = ThreadPoolExecutor(max_workers=1)
 whisper_model = None
 whisper_model_lock = threading.Lock()
@@ -51,8 +58,73 @@ whisper_model_lock = threading.Lock()
 diarization_pipeline = None
 diarization_pipeline_lock = threading.Lock()
 
+_ffmpeg_dll_handles = []
+
+
+def register_ffmpeg_dll_directories():
+    """
+    Register FFmpeg's shared-library directory so torchcodec/pyannote.audio can
+    load their native DLLs on Windows.
+
+    Since Python 3.8, ctypes.CDLL loads libraries with
+    LOAD_LIBRARY_SEARCH_DEFAULT_DIRS, which does NOT include PATH. torchcodec
+    therefore cannot find the FFmpeg DLLs (avcodec-*.dll, ...) shipped by the
+    "full-shared" FFmpeg build just because they are on PATH. Registering the
+    directory with os.add_dll_directory() makes those DLLs discoverable and
+    silences the "torchcodec is not installed correctly" warning.
+    """
+
+    if os.name != "nt":
+        return
+
+    candidates = []
+    for dir_path in os.environ.get("PATH", "").split(os.pathsep):
+        if not dir_path or not os.path.isdir(dir_path):
+            continue
+        if any(fname.startswith("avcodec-") for fname in os.listdir(dir_path)):
+            candidates.append(dir_path)
+
+    if not candidates:
+        packages_dir = os.path.join(
+            os.environ.get("LOCALAPPDATA", ""), "Microsoft", "WinGet", "Packages"
+        )
+
+        try:
+            for entry in os.listdir(packages_dir):
+                if entry.startswith("Gyan.FFmpeg.Shared_"):
+                    shared_root = os.path.join(packages_dir, entry)
+                    for sub in os.listdir(shared_root):
+                        if sub.endswith("full_build-shared"):
+                            candidates.append(os.path.join(shared_root, sub, "bin"))
+        except OSError:
+            pass
+
+    for candidate in candidates:
+        try:
+            _ffmpeg_dll_handles.append(os.add_dll_directory(candidate))
+        except (OSError, ValueError):
+            pass
+
 
 def is_internet_available(host="8.8.8.8", port=53, timeout=3):
+    """
+    Check whether the machine has outbound internet connectivity.
+
+    Attempts to open a TCP connection to the given host and port within the
+    specified timeout. Defaults to Google's public DNS server (8.8.8.8) on
+    port 53 which is commonly reachable when internet access is available.
+
+    :param host: Remote host to connect to (default: "8.8.8.8").
+    :type host: str
+    :param port: Remote TCP port to connect to (default: 53).
+    :type port: int
+    :param timeout: Connection timeout in seconds (default: 3).
+    :type timeout: float
+
+    :return: True if a connection could be established, False otherwise.
+    :rtype: bool
+    """
+
     try:
         with socket.create_connection((host, port), timeout=timeout):
             return True
@@ -76,11 +148,32 @@ def get_whisper_model():
 def update_transcription_status(
     note_id, status, transcription=None, segments=None, error=None
 ):
+    """
+    Update the transcription state for a note.
+
+    Retrieves the Note with the given note_id, updates its transcription status
+    and optional transcription text, segments, or error message, commits the
+    database session, and returns the updated Note instance.
+
+    :param note_id: ID of the note to update.
+    :param status: New transcription status value.
+    :param transcription: Optional full transcription text.
+    :param segments: Optional transcription segments metadata.
+    :param error: Optional transcription error message.
+    :return: Updated Note instance, or None if note_id was not found.
+    """
+
     note = db.session.get(Note, note_id)
     if not note:
         return None
 
     note.transcription_status = status
+    if status == TRANSCRIPTION_COMPLETED:
+        note.transcription_progress = 100
+        note.transcription_stage = None
+    elif status == TRANSCRIPTION_FAILED:
+        note.transcription_stage = None
+
     if transcription is not None:
         note.transcription = transcription
 
@@ -92,12 +185,14 @@ def update_transcription_status(
     return note
 
 
-def update_transcription_progress(note_id, progress):
+def update_transcription_progress(note_id, progress, stage=None):
     note = db.session.get(Note, note_id)
     if not note:
         return None
 
     note.transcription_progress = progress
+    if stage is not None:
+        note.transcription_stage = stage
     db.session.commit()
     return note
 
@@ -131,7 +226,11 @@ def track_whisper_progress(note_id):
     def report(current_frames, total_frames):
         if not total_frames:
             return
-        percent = min(99, int(current_frames / total_frames * 100))
+        # Whisper owns the 0-90% range; the remaining 10% is reserved for
+        # speaker diarization so it stays visible in the same progress bar.
+        percent = min(
+            DIARIZATION_START_PERCENT, int(current_frames / total_frames * 90)
+        )
         now = time.monotonic()
         if percent == last_reported["percent"] or now - last_reported["time"] < 1:
             return
@@ -223,6 +322,7 @@ def get_diarization_pipeline():
     if diarization_pipeline is None:
         with diarization_pipeline_lock:
             if diarization_pipeline is None:
+                register_ffmpeg_dll_directories()
                 from pyannote.audio import Pipeline
 
                 diarization_pipeline = Pipeline.from_pretrained(
@@ -256,7 +356,7 @@ def load_waveform(audio_path):
     return {"waveform": waveform, "sample_rate": sample_rate}
 
 
-def diarize_audio(audio_path):
+def diarize_audio(audio_path, progress_callback=None):
     """
     Return a list of (start, end, raw_speaker_label) turns, or None if unavailable.
 
@@ -265,6 +365,9 @@ def diarize_audio(audio_path):
     than failing the whole transcription.
 
     :param audio_path: Path to a mono PCM WAV file
+    :param progress_callback: Optional callable invoked with an integer in the
+        90-99 range as the pyannote pipeline progresses, mirroring the slice of
+        the transcription progress bar reserved for diarization.
     :return: List of (start, end, raw_speaker_label) tuples, or None if unavailable
     """
 
@@ -273,7 +376,40 @@ def diarize_audio(audio_path):
 
     try:
         pipeline = get_diarization_pipeline()
-        output = pipeline(load_waveform(audio_path))
+
+        hook = None
+        if progress_callback is not None:
+            last_reported = {"percent": -1, "time": 0.0}
+
+            def hook(step_name, artifact, file=None, total=None, completed=None):
+                if total is None or not total:
+                    return
+                ratio = min(1.0, (completed or 0) / total)
+                percent = min(
+                    DIARIZATION_END_PERCENT,
+                    DIARIZATION_START_PERCENT
+                    + int(ratio * (DIARIZATION_END_PERCENT - DIARIZATION_START_PERCENT)),
+                )
+                now = time.monotonic()
+                if (
+                    percent == last_reported["percent"]
+                    and now - last_reported["time"] < 1
+                ):
+                    return
+                last_reported["percent"] = percent
+                last_reported["time"] = now
+                progress_callback(percent)
+
+        with warnings.catch_warnings():
+            # pyannote's StatisticsPooling computes a corrected std over each
+            # speaker segment; segments lasting a single frame trigger a
+            # harmless "degrees of freedom is <= 0" UserWarning.
+            warnings.filterwarnings(
+                "ignore",
+                message=r"std\(\): degrees of freedom is <= 0",
+                category=UserWarning,
+            )
+            output = pipeline(load_waveform(audio_path), hook=hook)
         diarization = getattr(output, "speaker_diarization", output)
         return [
             (turn.start, turn.end, label)
@@ -325,7 +461,7 @@ def transcribe_note(note_id, audio_path):
             note = update_transcription_status(note_id, TRANSCRIPTION_PROCESSING)
             if not note:
                 return
-            update_transcription_progress(note_id, 0)
+            update_transcription_progress(note_id, 0, stage=STAGE_TRANSCRIBING)
 
             denoised_path = denoise_audio(audio_path)
 
@@ -353,7 +489,15 @@ def transcribe_note(note_id, audio_path):
             ]
 
             if words:
-                turns = diarize_audio(denoised_path)
+                update_transcription_progress(
+                    note_id, DIARIZATION_START_PERCENT, stage=STAGE_DIARIZING
+                )
+                turns = diarize_audio(
+                    denoised_path,
+                    progress_callback=lambda percent: update_transcription_progress(
+                        note_id, percent, stage=STAGE_DIARIZING
+                    ),
+                )
                 if turns:
                     num_speakers = assign_speakers(words, turns)
                     Speaker.query.filter_by(note_id=note_id).delete()

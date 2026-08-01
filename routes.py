@@ -21,6 +21,7 @@ from flask import (
     send_from_directory,
     Response,
 )
+
 from werkzeug.utils import secure_filename
 
 # Import extensions.py and models.py
@@ -97,6 +98,7 @@ def serialize_chat_note(note, include_preview=True):
         or note.transcription
         or ""
     )
+
     preview = preview_source.strip().replace("\r\n", "\n")
     if len(preview) > 240:
         preview = preview[:240].rstrip() + "..."
@@ -110,8 +112,10 @@ def serialize_chat_note(note, include_preview=True):
         "end_time": note.end_time,
         "tags": [tag.to_dict() for tag in note.tags],
     }
+
     if include_preview:
         data["preview"] = preview
+
     return data
 
 
@@ -122,8 +126,10 @@ def serialize_chat_message(message):
         "content": message.content,
         "created_at": message.created_at.isoformat(),
     }
+
     if message.role == "assistant":
         data["html"] = str(render_markdown(message.content))
+
     return data
 
 
@@ -138,10 +144,12 @@ def serialize_chat_session(session, include_messages=False):
         ],
         "message_count": len(session.messages),
     }
+
     if include_messages:
         data["messages"] = [
             serialize_chat_message(message) for message in session.messages
         ]
+
     return data
 
 
@@ -149,19 +157,24 @@ def transcript_context_for_note(note):
     transcript = (
         format_transcript_with_speakers(note) if note.speakers else note.transcription
     )
+
     parts = [
         f"Recording ID: {note.id}",
         f"Subject: {note.subject or 'Untitled'}",
         f"Title: {note.title or 'No title'}",
         f"Date/time: {note.date} {note.start_time or ''}-{note.end_time or ''}".strip(),
     ]
+
     if note.tags:
         parts.append("Tags: " + ", ".join(tag.name for tag in note.tags))
+
     user_notes = rich_note_html_to_text(note.notes_html)
     if user_notes:
         parts.append(f"User notes:\n{user_notes}")
+
     if note.key_points:
         parts.append(f"Key points:\n{note.key_points}")
+
     parts.append(f"Transcript:\n{transcript or ''}")
     return "\n".join(parts)
 
@@ -176,6 +189,7 @@ def call_ollama_for_chat(session):
     context = "\n\n---\n\n".join(
         transcript_context_for_note(note) for note in session.notes
     )
+
     note_images = collect_ollama_note_images(session.notes)
     messages = [
         {
@@ -188,6 +202,7 @@ def call_ollama_for_chat(session):
             ),
         }
     ]
+
     context_message = {
         "role": "user",
         "content": (
@@ -196,8 +211,10 @@ def call_ollama_for_chat(session):
             f"{context}"
         ),
     }
+
     if note_images:
         context_message["images"] = note_images
+
     messages.append(context_message)
     messages.extend(
         {"role": message.role, "content": message.content}
@@ -216,26 +233,34 @@ def call_ollama_for_chat(session):
             },
             timeout=120,
         )
+
         response.raise_for_status()
+
     except (requests.ConnectionError, requests.Timeout) as exc:
         return None, (str(exc) or "Could not reach Ollama.", 503)
+
     except requests.HTTPError as exc:
         detail = str(exc)
         try:
             detail = response.json().get("error") or detail
+
         except (ValueError, AttributeError):
             pass
+
         return None, (detail, 502)
+
     except requests.RequestException as exc:
         return None, (str(exc) or "Ollama request failed.", 502)
 
     try:
         content = (response.json().get("message", {}).get("content", "") or "").strip()
+
     except (ValueError, AttributeError):
         return None, ("Ollama returned a malformed response.", 502)
 
     if not content:
         return None, ("Ollama returned an empty response.", 502)
+
     return content, None
 
 
@@ -330,6 +355,7 @@ def api_chat_recordings():
         .limit(100)
         .all()
     )
+
     return jsonify({"recordings": [serialize_chat_note(note) for note in notes]})
 
 
@@ -355,6 +381,7 @@ def create_chat_session():
         for note_id in (data.get("note_ids") or [])
         if str(note_id).isdigit()
     ]
+
     if not note_ids:
         return jsonify({"error": "Choose at least one recording to chat about."}), 400
 
@@ -364,6 +391,7 @@ def create_chat_session():
         .filter(Note.transcription.isnot(None))
         .all()
     )
+
     found_ids = {note.id for note in notes}
     if len(found_ids) != len(set(note_ids)):
         return (
@@ -399,6 +427,7 @@ def create_chat_message(session_id):
         for note in session.notes
         if note.transcription_status == TRANSCRIPTION_COMPLETED and note.transcription
     ]
+
     if not transcript_ready_notes or len(transcript_ready_notes) != len(session.notes):
         return (
             jsonify(
@@ -478,6 +507,7 @@ def create_recording_session_route():
 
     if not subject:
         return jsonify({"error": "A subject is required."}), 400
+
     if extension not in {"wav", "mp3", "ogg", "webm", "m4a", "mp4"}:
         return jsonify({"error": "Unsupported audio file type."}), 400
 
@@ -490,6 +520,7 @@ def get_recording_session_route(session_key):
     session = get_session_by_key(session_key)
     if not session:
         return jsonify({"error": "Recording session was not found."}), 404
+
     return jsonify({"session": session.to_dict()})
 
 
@@ -498,6 +529,7 @@ def update_recording_session_notes(session_key):
     session = get_session_by_key(session_key)
     if not session:
         return jsonify({"error": "Recording session was not found."}), 404
+
     if session.status != ACTIVE_RECORDING_STATUS:
         return jsonify({"error": "Recording session is not active."}), 400
 
@@ -512,6 +544,7 @@ def save_recording_chunk_route(session_key):
     session = get_session_by_key(session_key)
     if not session:
         return jsonify({"error": "Recording session was not found."}), 404
+
     if session.status != ACTIVE_RECORDING_STATUS:
         return jsonify({"error": "Recording session is not active."}), 400
 
@@ -526,6 +559,7 @@ def save_recording_chunk_route(session_key):
             request.form.get("segment_index", 0, type=int),
             request.form.get("chunk_index", 0, type=int),
         )
+
     except ValueError as error:
         return jsonify({"error": str(error)}), 400
 
@@ -542,6 +576,7 @@ def finish_recording_session_route(session_key):
     end_time = (data.get("end_time") or "").strip() or None
     try:
         note = finish_recording_session(session, end_time)
+
     except ValueError as error:
         return jsonify({"error": str(error)}), 400
 
@@ -556,6 +591,7 @@ def cancel_recording_session_route(session_key):
 
     try:
         cancel_recording_session(session)
+
     except ValueError as error:
         return jsonify({"error": str(error)}), 400
 
@@ -741,6 +777,7 @@ def update_note_subject(note_id):
 def parse_note_date(value):
     try:
         return datetime.strptime(value, "%Y-%m-%d").date()
+
     except (TypeError, ValueError):
         return None
 
@@ -752,6 +789,7 @@ def parse_note_time(value):
 
     try:
         return datetime.strptime(value, "%H:%M:%S").time()
+
     except (TypeError, ValueError):
         return None
 
@@ -835,6 +873,7 @@ def retry_key_points(note_id):
         note.transcription,
         note.key_points_generation or 0,
     )
+
     return jsonify({"message": "Retrying key point extraction."})
 
 
@@ -849,8 +888,10 @@ def update_note_rich_notes(note_id):
     should_regenerate = (
         note.transcription_status == TRANSCRIPTION_COMPLETED and note.transcription
     )
+
     if should_regenerate:
         note.key_points_status = KEY_POINTS_PENDING
+
     elif note.transcription_status not in {
         TRANSCRIPTION_PENDING,
         TRANSCRIPTION_PROCESSING,
@@ -903,4 +944,5 @@ def delete_note(note_id):
 
     if request.headers.get("X-Requested-With") == "XMLHttpRequest":
         return jsonify({"message": "Note deleted."})
+
     return redirect(url_for("index"))
