@@ -110,12 +110,36 @@ ALLOWED_VIDEO_EMBED_HOSTS = {
 
 
 class RichNoteTextParser(HTMLParser):
+    """
+    HTML parser that converts rich note HTML into plain text.
+    """
+
     def __init__(self):
+        """
+        Initialize the parser with empty output parts.
+
+        :return: None
+        :rtype: None
+        """
+
         super().__init__()
         self.parts = []
         self.skip_math_depth = 0
 
     def handle_starttag(self, tag, attrs):
+        """
+        Handle the start of an HTML tag, appending text separators or markers.
+
+        Appends newlines for block elements, "- " for list items, image/video
+        placeholders, and skips LaTeX math-field content.
+
+        :param tag: The HTML tag name.
+        :type tag: str
+        :param attrs: The tag's attributes.
+        :type attrs: list of tuple
+        :return: None
+        :rtype: None
+        """
         if self.skip_math_depth:
             self.skip_math_depth += 1
             return
@@ -150,15 +174,39 @@ class RichNoteTextParser(HTMLParser):
                 self.skip_math_depth = 1
 
     def handle_endtag(self, tag):
+        """
+        Handle the end of an HTML tag, unwinding math-field skipping.
+
+        :param tag: The HTML tag name.
+        :type tag: str
+        :return: None
+        :rtype: None
+        """
         if self.skip_math_depth:
             self.skip_math_depth -= 1
 
     def handle_data(self, data):
+        """
+        Append text data unless inside a skipped math-field span.
+
+        :param data: The text content of the element.
+        :type data: str
+        :return: None
+        :rtype: None
+        """
         if self.skip_math_depth:
             return
         self.parts.append(data)
 
     def get_text(self):
+        """
+        Build and clean the collected plain text.
+
+        Collapses runs of whitespace and drops blank lines.
+
+        :return: The plain text representation of the HTML.
+        :rtype: str
+        """
         text = "".join(self.parts)
         lines = [re.sub(r"[ \t]+", " ", line).strip() for line in text.splitlines()]
         return "\n".join(line for line in lines if line).strip()
@@ -209,6 +257,18 @@ def normalize_list_indentation(text):
 
 
 def render_markdown(text):
+    """
+    Render markdown text to safe HTML.
+
+    Normalizes list indentation before rendering and returns the result as a
+    Markup object.
+
+    :param text: The markdown text to render.
+    :type text: str
+    :return: Rendered HTML as a Markup object, or "" if text is empty.
+    :rtype: markupsafe.Markup or str
+    """
+
     if not text:
         return ""
 
@@ -304,6 +364,17 @@ def allow_rich_note_attribute(tag, name, value):
 
 
 def keep_allowed_iframe(match):
+    """
+    Keep an iframe match only if its src is an allowed video embed.
+
+    Used as the replacement callable when stripping iframes from rich note HTML.
+
+    :param match: A regex match for an iframe tag.
+    :type match: re.Match
+    :return: The original iframe HTML if allowed, otherwise "".
+    :rtype: str
+    """
+
     src_match = re.search(
         r"\bsrc=[\"']([^\"']+)[\"']", match.group("attrs"), flags=re.IGNORECASE
     )
@@ -315,6 +386,15 @@ def keep_allowed_iframe(match):
 
 
 def is_allowed_video_embed_src(value):
+    """
+    Check whether a URL is an allowed YouTube or Vimeo embed source.
+
+    :param value: The iframe src URL to check.
+    :type value: str
+    :return: True if the URL is an allowed embed, False otherwise.
+    :rtype: bool
+    """
+
     parsed = urlparse(value or "")
     host = parsed.netloc.lower()
     path = parsed.path or ""
@@ -331,22 +411,62 @@ def is_allowed_video_embed_src(value):
 
 
 def set_link_attrs(attrs, new=False):
+    """
+    Add target and rel attributes to a linkified anchor.
+
+    Used as a bleach linkify callback.
+
+    :param attrs: The current link attributes dict.
+    :type attrs: dict
+    :param new: Whether the link was newly created by linkify.
+    :type new: bool
+    :return: The updated attributes dict.
+    :rtype: dict
+    """
+
     attrs[(None, "target")] = "_blank"
     attrs[(None, "rel")] = "noopener noreferrer"
     return attrs
 
 
 def render_rich_note_html(html):
+    """
+    Sanitize rich note HTML and return it as a safe Markup object.
+
+    :param html: The HTML content to sanitize.
+    :type html: str
+    :return: Sanitized HTML as a Markup object.
+    :rtype: markupsafe.Markup
+    """
+
     return Markup(sanitize_rich_note_html(html) or "")
 
 
 def rich_note_html_to_text(html):
+    """
+    Convert rich note HTML into plain text.
+
+    :param html: The HTML content to convert.
+    :type html: str
+    :return: The plain text representation of the HTML.
+    :rtype: str
+    """
+
     parser = RichNoteTextParser()
     parser.feed(sanitize_rich_note_html(html) or "")
     return parser.get_text()
 
 
 def parse_json(value):
+    """
+    Parse a JSON string into a list, defaulting to an empty list.
+
+    :param value: The JSON string to parse.
+    :type value: str or None
+    :return: The parsed list, or [] if the value is empty or invalid.
+    :rtype: list
+    """
+
     if not value:
         return []
 

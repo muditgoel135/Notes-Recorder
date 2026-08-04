@@ -19,6 +19,7 @@ let isStoppingRecording = false;
 let hasChunkUploadError = false;
 let activeMathEditor = null;
 let editingMathSpan = null;
+let savedMathEditorRange = null;
 let mathQuillInterface = null;
 let modalMathField = null;
 let isSyncingMathLatex = false;
@@ -351,10 +352,34 @@ function openMathEditor(editor, mathSpan = null) {
         return;
     }
 
+    const range = selectionRangeInEditor(editor);
+    savedMathEditorRange = range ? range.cloneRange() : null;
     activeMathEditor = editor;
     editingMathSpan = mathSpan;
     setModalMathLatex(mathSpan ? mathSpan.dataset.latex || "" : "");
     bootstrap.Modal.getOrCreateInstance(modalEl).show();
+}
+
+function restoreMathEditorSelection(editor) {
+    if (!editor) {
+        return;
+    }
+    editor.focus();
+    if (!savedMathEditorRange) {
+        return;
+    }
+    try {
+        if (
+            editor.contains(savedMathEditorRange.startContainer) &&
+            editor.contains(savedMathEditorRange.endContainer)
+        ) {
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(savedMathEditorRange.cloneRange());
+        }
+    } catch (error) {
+        // Range refers to detached nodes; nothing to restore.
+    }
 }
 
 function clampInteger(value, min, max, fallback) {

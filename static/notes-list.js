@@ -346,11 +346,23 @@ function renderMathFields(root = document) {
             el.textContent = `$${latex}$`;
             return;
         }
-        const existingMath = MQ(el);
-        if (existingMath) {
+        let existingMath = null;
+        try {
+            existingMath = MQ(el);
+        } catch (error) {
+            // Markup references MathQuill nodes never registered on this page;
+            // treat as stale and re-render below.
+            existingMath = null;
+        }
+        if (existingMath && existingMath.el() === el) {
             existingMath.latex(latex);
             return;
         }
+        el.querySelectorAll('[mathquill-block-id], [mathquill-command-id]').forEach((node) => {
+            node.removeAttribute("mathquill-block-id");
+            node.removeAttribute("mathquill-command-id");
+        });
+        el.querySelectorAll(".mq-selectable, .mq-root-block").forEach((node) => node.remove());
         el.textContent = latex;
         MQ.StaticMath(el);
     });
@@ -642,12 +654,13 @@ function updateTagFilterCount() {
 function renderSubjectRadios() {
     const container = document.getElementById("subject-radio-group");
     const previousValue = getSelectedSubject();
-    container.innerHTML = allSubjects.map((subject) => `
-        <label>
-            <input type="radio" name="subject" value="${escapeHtml(subject.name)}" required>
-            ${escapeHtml(subject.name)} &nbsp; &nbsp;
-        </label>
-    `).join("") + ("<button type='reset' class='btn btn-secondary'> Clear selection </button>");
+    container.innerHTML = allSubjects.map((subject, index) => `
+        <div class="form-check form-check-inline mb-0">
+            <input class="form-check-input" type="radio" name="subject" id="subject-${index}"
+                value="${escapeHtml(subject.name)}" required>
+            <label class="form-check-label small" for="subject-${index}">${escapeHtml(subject.name)}</label>
+        </div>
+    `).join("") + "<button type='reset' class='btn btn-sm btn-outline-secondary'>Clear</button>";
     const toReselect = container.querySelector(`input[value="${CSS.escape(previousValue)}"]`);
     if (toReselect) {
         toReselect.checked = true;
@@ -932,11 +945,13 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (activeMathEditor && latex) {
             const id = `math-${Date.now()}-${Math.random().toString(36).slice(2)}`;
             const html = `<span id="${id}" class="math-field" data-latex="${escapeHtml(latex)}" contenteditable="false"></span>`;
+            restoreMathEditorSelection(activeMathEditor);
             insertHtmlAtCursor(activeMathEditor, html + '&nbsp;');
             renderMathFields(activeMathEditor);
         }
         bootstrap.Modal.getInstance(mathModalEl).hide();
         editingMathSpan = null;
         activeMathEditor = null;
+        savedMathEditorRange = null;
     });
 });

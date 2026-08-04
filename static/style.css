@@ -2,10 +2,16 @@
     white-space: pre-wrap;
 }
 
+#recordings-list .list-group-item {
+    padding: 1.15rem 1.25rem;
+}
+
+#recordings-list .list-group-item audio {
+    width: min(100%, 26rem);
+}
+
 .rich-notes-panel {
-    max-width: 860px;
-    margin-left: auto;
-    margin-right: auto;
+    width: 100%;
 }
 
 .rich-notes-toolbar {
@@ -466,4 +472,8 @@ ul.tag-tree {
 
 .chat-page-layout .chat-messages {
     min-height: calc(100vh - 320px);
+}
+
+.notebox {
+    min-width: 18rem;
 }

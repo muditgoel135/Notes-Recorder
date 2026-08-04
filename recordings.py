@@ -35,10 +35,30 @@ WEBM_DURATION_ID = bytes.fromhex("4489")
 
 
 def allowed_file(filename):
+    """
+    Check whether a filename has an allowed audio file extension.
+
+    :param filename: The filename to check.
+    :type filename: str
+    :return: True if the extension is in ALLOWED_EXTENSIONS, False otherwise.
+    :rtype: bool
+    """
+
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
 def note_download_basename(note):
+    """
+    Build a safe base filename for downloading a note.
+
+    Combines the note's date with a sanitized title or subject.
+
+    :param note: The Note instance to name.
+    :type note: Note
+    :return: A sanitized base filename string.
+    :rtype: str
+    """
+
     safe_subject = secure_filename(note.title or note.subject or "note") or "note"
     return f"{note.date}_{safe_subject}"
 
@@ -127,14 +147,52 @@ def create_recording_session(subject, mime_type, extension, start_time=None):
 
 
 def get_session_chunk_dir(session):
+    """
+    Return the directory where a recording session's chunks are stored.
+
+    :param session: The RecordingSession instance.
+    :type session: RecordingSession
+    :return: Absolute path to the session's chunk directory.
+    :rtype: str
+    """
+
     return os.path.join(SESSION_CHUNKS_DIR, session.session_key)
 
 
 def get_session_by_key(session_key):
+    """
+    Look up a recording session by its session key.
+
+    :param session_key: The unique session key string.
+    :type session_key: str
+    :return: The matching RecordingSession instance, or None if not found.
+    :rtype: RecordingSession or None
+    """
+
     return RecordingSession.query.filter_by(session_key=session_key).first()
 
 
 def save_recording_chunk(session, chunk_file, segment_index, chunk_index):
+    """
+    Save an uploaded audio chunk for an active recording session.
+
+    Validates that the session is active, writes the chunk to the session's
+    chunk directory, and records its segment index and chunk count on the
+    session.
+
+    :param session: The active RecordingSession instance.
+    :type session: RecordingSession
+    :param chunk_file: The uploaded chunk file storage object.
+    :type chunk_file: werkzeug.datastructures.FileStorage
+    :param segment_index: Zero-based segment number for the chunk.
+    :type segment_index: int
+    :param chunk_index: Zero-based chunk number within the segment.
+    :type chunk_index: int
+    :return: None
+    :rtype: None
+    :raises ValueError: If the recording session is not active.
+    """
+
     if session.status != ACTIVE_RECORDING_STATUS:
         raise ValueError("Recording session is not active.")
 
@@ -236,6 +294,16 @@ def finish_recording_session(session, end_time=None):
 
 
 def cancel_recording_session(session):
+    """
+    Cancel an active recording session and delete its chunks.
+
+    :param session: The RecordingSession instance to cancel.
+    :type session: RecordingSession
+    :return: None
+    :rtype: None
+    :raises ValueError: If the session is already finished.
+    """
+
     if session.status == FINISHED_RECORDING_STATUS:
         raise ValueError("Finished recordings cannot be canceled.")
 
@@ -245,6 +313,17 @@ def cancel_recording_session(session):
 
 
 def build_recording_path(session, now):
+    """
+    Build a unique recording file path for a session at a given time.
+
+    :param session: The RecordingSession instance being finalized.
+    :type session: RecordingSession
+    :param now: The datetime used to stamp the filename.
+    :type now: datetime.datetime
+    :return: Absolute path to the new recording file.
+    :rtype: str
+    """
+
     safe_subject = secure_filename(session.subject or "unnamed") or "unnamed"
     timestamp = now.strftime("%Y%m%d_%H%M%S")
     filename = f"{timestamp}_{safe_subject}_{uuid.uuid4().hex}.{session.extension}"
@@ -471,6 +550,18 @@ def patch_webm_duration(data, duration_seconds):
 
 
 def read_ebml_size(data, pos):
+    """
+    Read an EBML vint size at a position, rejecting unknown sizes.
+
+    :param data: The bytearray of the EBML/WebM data.
+    :type data: bytearray
+    :param pos: Byte offset where the size begins.
+    :type pos: int
+    :return: A tuple of the size value and the number of bytes it occupies.
+    :rtype: tuple of (int, int)
+    :raises ValueError: If the size is unknown or the structure is invalid.
+    """
+
     value, size_len, unknown = read_ebml_size_metadata(data, pos)
     if unknown:
         raise ValueError("Unknown EBML size cannot be patched.")
@@ -479,6 +570,19 @@ def read_ebml_size(data, pos):
 
 
 def read_ebml_size_metadata(data, pos):
+    """
+    Read an EBML vint size at a position along with its length and validity.
+
+    :param data: The bytearray of the EBML/WebM data.
+    :type data: bytearray
+    :param pos: Byte offset where the size begins.
+    :type pos: int
+    :return: A tuple of (value, size_len, unknown) where unknown indicates the
+        size marks an unknown-length element.
+    :rtype: tuple of (int, int, bool)
+    :raises ValueError: If the size is missing or invalid.
+    """
+
     if pos >= len(data):
         raise ValueError("EBML size is missing.")
 
@@ -499,6 +603,17 @@ def read_ebml_size_metadata(data, pos):
 
 
 def encode_ebml_size(value, size_len=1):
+    """
+    Encode an integer as an EBML vint of the given length.
+
+    :param value: The size value to encode.
+    :type value: int
+    :param size_len: Number of bytes the vint should occupy (1-8).
+    :type size_len: int
+    :return: The encoded vint bytes, or None if the value cannot be encoded.
+    :rtype: bytes or None
+    """
+
     if size_len < 1 or size_len > 8 or value >= (1 << (7 * size_len)) - 1:
         return None
 
@@ -506,6 +621,17 @@ def encode_ebml_size(value, size_len=1):
 
 
 def expand_webm_segment_size(data, added_bytes):
+    """
+    Expand the WebM segment element size by the given number of bytes.
+
+    :param data: The bytearray of the WebM data to modify.
+    :type data: bytearray
+    :param added_bytes: Number of bytes being inserted into the segment.
+    :type added_bytes: int
+    :return: True if the segment size was updated or left as-is, False on failure.
+    :rtype: bool
+    """
+
     segment_pos = data.find(WEBM_SEGMENT_ID)
     if segment_pos < 0:
         return True

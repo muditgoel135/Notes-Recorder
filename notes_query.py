@@ -60,6 +60,7 @@ def init_database():
         "transcription_progress": "INTEGER DEFAULT 0",
         "transcription_stage": "VARCHAR(20)",
         "transcription_error": "TEXT",
+        "video_transcriptions": "TEXT",
         "title": "VARCHAR(200)",
         "key_points": "TEXT",
         "key_points_status": f"VARCHAR(20) NOT NULL DEFAULT '{KEY_POINTS_PENDING}'",

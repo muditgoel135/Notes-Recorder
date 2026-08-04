@@ -14,6 +14,7 @@ load_dotenv()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RECORDINGS_DIR = os.path.join(BASE_DIR, "recordings")
 NOTE_IMAGES_DIR = os.path.join(RECORDINGS_DIR, "note_images")
+VIDEO_CACHE_DIR = os.path.join(RECORDINGS_DIR, "video_cache")
 
 ALLOWED_EXTENSIONS = {"wav", "mp3", "ogg", "webm", "m4a", "mp4"}
 
@@ -31,9 +32,10 @@ KEY_POINTS_PROCESSING = "processing"
 KEY_POINTS_COMPLETED = "completed"
 KEY_POINTS_FAILED = "failed"
 OLLAMA_API_KEY = os.environ.get("OLLAMA_API_KEY", "")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gpt-oss:20b")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "minimax-m3")
 OLLAMA_CHAT_URL = "https://ollama.com/api/chat"
 KEY_POINTS_RETRY_SECONDS = int(os.environ.get("KEY_POINTS_RETRY_SECONDS", "30"))
+VIDEO_KEYFRAME_COUNT = int(os.environ.get("VIDEO_KEYFRAME_COUNT", "6"))
 
 DEFAULT_PER_PAGE = int(os.environ.get("DEFAULT_PER_PAGE", "10"))
 

@@ -20,6 +20,7 @@ A small Flask app for recording class notes from the browser microphone, transcr
 - Inline editing of note title, key points, subject, date, and start time. Date/time edits preserve the original recording duration and recalculate the end time.
 - Rich notes can be captured while recording and edited later. The editor supports headings, bold/italic/underline, lists, links, text/highlight colors, tables, image uploads, and inline math.
 - Rich-note images are stored locally and included as image context when Ollama generates key points or answers chats about selected recordings.
+- YouTube/Vimeo videos embedded in rich notes are automatically downloaded (yt-dlp) during key-points extraction: the video's audio is transcribed with Whisper and merged into the note's transcript, and keyframes are extracted with ffmpeg and sent to the model as image context.
 - Inline math editing: use the **Math** button in the rich editor to insert LaTeX, click an existing formula to edit it, and see rendered math preserved in saved notes and the transcript view.
 - Retry transcription or key-points extraction at any time, not just after a failure. Retrying transcription also re-runs key-points extraction on the new transcript.
 - Download a note's transcript (`.txt`) or key points (`.md`).
@@ -111,7 +112,8 @@ Optional environment variables (e.g. in a `.env` file):
 - `WHISPER_MODEL` — Whisper model size to load (default `small`).
 - `OLLAMA_API_KEY` — API key for Ollama's hosted chat API. Required for title/key-points extraction and chatting with recordings; without it, transcription still works.
 - `KEY_POINTS_RETRY_SECONDS` — how often (in seconds) to retry key-points extraction while there is no internet connection (default `30`).
-- `OLLAMA_MODEL` — Ollama model used for key-points extraction and chat (default `gpt-oss:20b`).
+- `VIDEO_KEYFRAME_COUNT` — how many keyframes per embedded video are extracted and sent to the model (default `6`). Keyframes are cached under `recordings/video_cache/`.
+- `OLLAMA_MODEL` — Ollama model used for key-points extraction and chat (default `minimax-m3`). Must be a vision-capable model so images in rich notes are sent along; e.g. `minimax-m3` (1M context) or `gemma4:cloud`. Text-only models like `gpt-oss:20b` reject image input.
 - `TRANSCRIBE_EXISTING_ON_STARTUP` — set to `false` to skip re-queuing any pending transcriptions/key-points on startup (default `true`).
 - `DEFAULT_PER_PAGE` — number of notes shown per page in the notes list (default `10`).
 - The rich notes editor relies on vendored `jquery` and `MathQuill` assets in `static/vendor/`, so no extra npm install step is needed for math editing.
@@ -174,6 +176,7 @@ Use the search box and date/time filters above the notes list to find recordings
 - The first transcription run downloads the selected Whisper model, which can take a while depending on model size and network speed.
 - The app can be used fully offline for recording and transcription. Key-points extraction needs internet access to reach Ollama; while offline it shows as "Extracting key points..." and retries automatically until a connection is available.
 - Chatting with recordings also requires internet access and `OLLAMA_API_KEY`; if a request fails, the user's message remains saved in the chat history. Any images embedded in the selected rich notes are attached to the Ollama context.
+- Embedded video transcription requires internet access (for yt-dlp downloads) and `yt-dlp` installed via `pip install -r requirements.txt`. Downloaded videos are stored temporarily in `recordings/video_cache/`; only the extracted keyframes and transcripts are kept afterwards. Video audio is transcribed with the same local Whisper model used for recordings.
 - Speaker diarization requires internet access (and a valid `HUGGINGFACE_TOKEN`) the first time it downloads the diarization model; after that it runs locally like Whisper. If diarization fails or isn't configured, transcription still completes normally, just without speaker labels.
 - Generated markdown is normalized before rendering so common LLM list-indentation mistakes are shown as lists instead of code blocks.
 - Key-points extraction tolerates minor JSON formatting mistakes in Ollama's response (e.g. stray backslashes) by attempting to repair and re-parse them before failing.

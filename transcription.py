@@ -20,11 +20,18 @@ from contextlib import contextmanager
 import numpy as np
 import requests
 
-# Import extensions, models, note_images, text_filters, and config
+# Import extensions, models, note_images, text_filters, and video_embeds
 from extensions import app, db
 from models import Note, Speaker, SPEAKER_COLOR_PALETTE
 from note_images import collect_ollama_note_images
 from text_filters import rich_note_html_to_text
+from video_embeds import (
+    extract_video_embeds,
+    format_video_transcripts,
+    process_video_embeds,
+)
+
+# Import config.py constants
 from config import (
     BASE_DIR,
     WHISPER_MODEL_NAME,
@@ -134,6 +141,15 @@ def is_internet_available(host="8.8.8.8", port=53, timeout=3):
 
 
 def get_whisper_model():
+    """
+    Return the shared Whisper transcription model, loading it on first use.
+
+    The model is loaded lazily and cached in the module-level whisper_model
+    variable, guarded by a lock so concurrent callers only load it once.
+
+    :return: The loaded Whisper model instance.
+    """
+
     global whisper_model
     if whisper_model is None:
         with whisper_model_lock:
@@ -161,6 +177,7 @@ def update_transcription_status(
     :param segments: Optional transcription segments metadata.
     :param error: Optional transcription error message.
     :return: Updated Note instance, or None if note_id was not found.
+    :rtype: Note or None
     """
 
     note = db.session.get(Note, note_id)
@@ -171,6 +188,7 @@ def update_transcription_status(
     if status == TRANSCRIPTION_COMPLETED:
         note.transcription_progress = 100
         note.transcription_stage = None
+
     elif status == TRANSCRIPTION_FAILED:
         note.transcription_stage = None
 
@@ -186,6 +204,23 @@ def update_transcription_status(
 
 
 def update_transcription_progress(note_id, progress, stage=None):
+    """
+    Update the transcription progress percentage for a note.
+
+    Retrieves the Note with the given note_id, updates its transcription
+    progress and optionally its transcription stage, commits the database
+    session, and returns the updated Note instance.
+
+    :param note_id: ID of the note to update.
+    :type note_id: int
+    :param progress: New transcription progress percentage (0-100).
+    :type progress: int
+    :param stage: Optional transcription stage name (e.g. "transcribing").
+    :type stage: str or None
+    :return: Updated Note instance, or None if note_id was not found.
+    :rtype: Note or None
+    """
+
     note = db.session.get(Note, note_id)
     if not note:
         return None
@@ -224,6 +259,16 @@ def track_whisper_progress(note_id):
     last_reported = {"percent": -1, "time": 0.0}
 
     def report(current_frames, total_frames):
+        """
+        Report Whisper's mel-frame progress as a transcription percentage.
+
+        :param current_frames: Frames processed so far by the tqdm bar.
+        :type current_frames: int
+        :param total_frames: Total frames Whisper will process.
+        :type total_frames: int
+        :return: None
+        :rtype: None
+        """
         if not total_frames:
             return
         # Whisper owns the 0-90% range; the remaining 10% is reserved for
@@ -241,11 +286,26 @@ def track_whisper_progress(note_id):
     real_tqdm_cls = whisper_transcribe_module.tqdm.tqdm
 
     class ReportingTqdm(real_tqdm_cls):
+        """
+        tqdm subclass that reports progress to the note while updating.
+        """
         def update(self, n=1):
+            """
+            Intercept tqdm updates to persist whisper's progress percentage.
+
+            :param n: Number of frames reported as processed.
+            :type n: int
+            :return: None
+            :rtype: None
+            """
             super().update(n)
             report(self.n, self.total)
 
     class TqdmModuleShim:
+        """
+        Module-like shim exposing the progress-reporting tqdm class.
+        """
+
         tqdm = ReportingTqdm
 
     original_tqdm_module = whisper_transcribe_module.tqdm
@@ -259,6 +319,31 @@ def track_whisper_progress(note_id):
 def update_key_points_status(
     note_id, status, title=None, key_points=None, error=None, generation=None
 ):
+    """
+    Update the key points state for a note.
+
+    Retrieves the Note with the given note_id and updates its key points
+    status, optional title, key points text, error message, and generation
+    number. The generation guard prevents stale background jobs from
+    overwriting newer key points.
+
+    :param note_id: ID of the note to update.
+    :type note_id: int
+    :param status: New key points status value.
+    :type status: str
+    :param title: Optional new title for the note.
+    :type title: str or None
+    :param key_points: Optional new key points markdown text.
+    :type key_points: str or None
+    :param error: Optional key points error message.
+    :type error: str or None
+    :param generation: Key points generation this update belongs to.
+    :type generation: int or None
+    :return: Updated Note instance, or None if note_id was not found or the
+        generation is stale.
+    :rtype: Note or None
+    """
+
     note = db.session.get(Note, note_id)
     if not note:
         return None
@@ -318,6 +403,16 @@ def denoise_audio(audio_path):
 
 
 def get_diarization_pipeline():
+    """
+    Return the pyannote speaker diarization pipeline, loading it on first use.
+
+    Loads lazily and caches the pipeline in the module-level variable, guarded
+    by a lock. FFmpeg's shared-library directory is registered first so its
+    native DLLs can be found on Windows.
+
+    :return: The loaded pyannote diarization Pipeline instance.
+    """
+
     global diarization_pipeline
     if diarization_pipeline is None:
         with diarization_pipeline_lock:
@@ -382,20 +477,41 @@ def diarize_audio(audio_path, progress_callback=None):
             last_reported = {"percent": -1, "time": 0.0}
 
             def hook(step_name, artifact, file=None, total=None, completed=None):
+                """
+                Report pyannote's pipeline progress to the progress callback.
+
+                :param step_name: Name of the pipeline step being executed.
+                :type step_name: str
+                :param artifact: Artifact produced by the pipeline step.
+                :type artifact: object
+                :param file: File being processed.
+                :type file: object or None
+                :param total: Total number of units in the step.
+                :type total: int or None
+                :param completed: Number of units completed in the step.
+                :type completed: int or None
+                :return: None
+                :rtype: None
+                """
+
                 if total is None or not total:
                     return
                 ratio = min(1.0, (completed or 0) / total)
                 percent = min(
                     DIARIZATION_END_PERCENT,
                     DIARIZATION_START_PERCENT
-                    + int(ratio * (DIARIZATION_END_PERCENT - DIARIZATION_START_PERCENT)),
+                    + int(
+                        ratio * (DIARIZATION_END_PERCENT - DIARIZATION_START_PERCENT)
+                    ),
                 )
+
                 now = time.monotonic()
                 if (
                     percent == last_reported["percent"]
                     and now - last_reported["time"] < 1
                 ):
                     return
+
                 last_reported["percent"] = percent
                 last_reported["time"] = now
                 progress_callback(percent)
@@ -455,6 +571,22 @@ def assign_speakers(words, turns):
 
 
 def transcribe_note(note_id, audio_path):
+    """
+    Transcribe an audio file for a note and extract key points.
+
+    Denoises the audio, runs it through Whisper (with speaker diarization when
+    available), persists the transcript and per-word segments, then hands off
+    to extract_key_points. Runs inside the app context and updates the note's
+    transcription status on success or failure.
+
+    :param note_id: ID of the note to transcribe.
+    :type note_id: int
+    :param audio_path: Path to the audio file to transcribe.
+    :type audio_path: str
+    :return: None
+    :rtype: None
+    """
+
     with app.app_context():
         denoised_path = audio_path
         try:
@@ -567,6 +699,14 @@ def format_transcript_with_speakers(note):
     speakers = note.speakers_by_order()
 
     def speaker_name(spk):
+        """
+        Resolve a 0-based speaker index to a display name.
+
+        :param spk: 0-based speaker index.
+        :type spk: int or None
+        :return: Display name for the speaker.
+        :rtype: str
+        """
         speaker = speakers.get(spk)
         if speaker:
             return speaker.display_name or speaker.label
@@ -595,11 +735,59 @@ def format_transcript_with_speakers(note):
 
 
 def is_key_points_generation_current(note_id, generation):
+    """
+    Check whether the note's key points generation matches the given value.
+
+    :param note_id: ID of the note to check.
+    :type note_id: int
+    :param generation: Key points generation value to compare against.
+    :type generation: int
+    :return: True if the note exists and its generation matches, False otherwise.
+    :rtype: bool
+    """
+
     note = db.session.get(Note, note_id)
     return bool(note and note.key_points_generation == generation)
 
 
+def has_speaker_annotations(note):
+    """
+    Whether the note's transcription segments carry per-word speaker labels.
+
+    When diarization is available, format_transcript_with_speakers() returns
+    only the speaker-labeled recording words, so embedded-video transcripts
+    must be appended to the model prompt separately.
+
+    :param note: Note instance with transcription_segments.
+    :return: True if any word has a "spk" annotation.
+    """
+
+    words = (
+        json.loads(note.transcription_segments) if note.transcription_segments else []
+    )
+
+    return bool(words) and any(word.get("spk") is not None for word in words)
+
+
 def extract_key_points(note_id, transcript, generation=None):
+    """
+    Generate a title and key points for a note using Ollama.
+
+    Builds a prompt from the user's notes, the transcript (with speaker labels
+    and embedded video transcripts when available), and any extracted images,
+    then posts it to Ollama. Waits for an internet connection when needed and
+    guards against stale generations. Runs inside the app context.
+
+    :param note_id: ID of the note to update.
+    :type note_id: int
+    :param transcript: The transcription text to summarize.
+    :type transcript: str
+    :param generation: Key points generation this run belongs to.
+    :type generation: int or None
+    :return: None
+    :rtype: None
+    """
+
     with app.app_context():
         note = db.session.get(Note, note_id)
         if not note:
@@ -611,7 +799,9 @@ def extract_key_points(note_id, transcript, generation=None):
         if note.key_points_generation != generation:
             return
 
-        if not transcript:
+        if not transcript and not (
+            note.notes_html and extract_video_embeds(note.notes_html)
+        ):
             update_key_points_status(
                 note_id,
                 KEY_POINTS_FAILED,
@@ -620,9 +810,6 @@ def extract_key_points(note_id, transcript, generation=None):
             )
             return
 
-        prompt_transcript = (
-            format_transcript_with_speakers(note) if note else transcript
-        )
         user_notes = rich_note_html_to_text(note.notes_html)
 
         if not OLLAMA_API_KEY:
@@ -632,6 +819,7 @@ def extract_key_points(note_id, transcript, generation=None):
                 error="OLLAMA_API_KEY is not configured.",
                 generation=generation,
             )
+
             return
 
         if not is_internet_available():
@@ -648,16 +836,53 @@ def extract_key_points(note_id, transcript, generation=None):
                     extract_key_points, note_id, transcript, generation
                 ),
             ).start()
+
             return
 
         try:
             update_key_points_status(
                 note_id, KEY_POINTS_PROCESSING, generation=generation
             )
+
+            # Download embedded YouTube/Vimeo videos, transcribe their audio,
+            # and extract keyframes to attach to the model request.
+            video_images = []
+            video_transcript_text = ""
+            try:
+                video_images = process_video_embeds(note)
+                video_transcript_text = format_video_transcripts(note)
+
+            except Exception:
+                video_images = []
+
+            if (
+                not (note.transcription or "").strip()
+                and not (transcript or "").strip()
+            ):
+                update_key_points_status(
+                    note_id,
+                    KEY_POINTS_FAILED,
+                    error="No transcript to summarize.",
+                    generation=generation,
+                )
+                return
+
+            prompt_transcript = (
+                format_transcript_with_speakers(note) if note else transcript
+            )
+
             context_parts = []
             if user_notes:
                 context_parts.append(f"User notes:\n{user_notes}")
+
             context_parts.append(f"Transcript:\n{prompt_transcript}")
+            # When diarization is available the speaker-labeled transcript above
+            # omits the merged video text, so append it separately.
+            if video_transcript_text and has_speaker_annotations(note):
+                context_parts.append(
+                    f"Embedded video transcripts:\n{video_transcript_text}"
+                )
+
             message = {
                 "role": "user",
                 "content": (
@@ -666,7 +891,10 @@ def extract_key_points(note_id, transcript, generation=None):
                     "'Speaker 1: ...') when that information is "
                     "available; use it to attribute points to the "
                     "right speaker where relevant, but don't let it "
-                    "distract from summarizing the content. Respond "
+                    "distract from summarizing the content. Embedded "
+                    "video transcripts, when present, describe videos "
+                    "linked in the user's notes and are equally part of "
+                    "the lesson. Respond "
                     "with ONLY a JSON object of the form "
                     '{"title": "short descriptive title (max 8 words)", '
                     '"key_points": "markdown notes summarizing the '
@@ -679,12 +907,16 @@ def extract_key_points(note_id, transcript, generation=None):
                     "**text** where useful. Treat the user's notes as "
                     "important context that may clarify, correct, or "
                     "prioritize parts of the transcript. Images attached "
-                    "to this message were embedded in the user's notes. "
+                    "to this message are keyframes extracted from embedded "
+                    "videos or images from the user's notes. "
                     "No preamble or "
                     f"closing remarks.\n\n{chr(10).join(context_parts)}"
                 ),
             }
             note_images = collect_ollama_note_images([note])
+            for image in video_images:
+                if image not in note_images:
+                    note_images.append(image)
             if note_images:
                 message["images"] = note_images
             response = requests.post(
@@ -740,6 +972,13 @@ def extract_key_points(note_id, transcript, generation=None):
             if not is_key_points_generation_current(note_id, generation):
                 return
             error_message = str(exc).strip() or exc.__class__.__name__
+
+            if isinstance(exc, requests.HTTPError) and exc.response is not None:
+                try:
+                    error_message = exc.response.json().get("error") or error_message
+                except (ValueError, AttributeError):
+                    pass
+
             update_key_points_status(
                 note_id,
                 KEY_POINTS_FAILED,
@@ -749,10 +988,32 @@ def extract_key_points(note_id, transcript, generation=None):
 
 
 def enqueue_transcription(note_id, audio_path):
+    """
+    Schedule a note for transcription on the background executor.
+
+    :param note_id: ID of the note to transcribe.
+    :type note_id: int
+    :param audio_path: Path to the audio file to transcribe.
+    :type audio_path: str
+    :return: None
+    :rtype: None
+    """
+
     transcription_executor.submit(transcribe_note, note_id, audio_path)
 
 
 def enqueue_existing_transcriptions():
+    """
+    Re-enqueue transcription for notes stuck in a pending or processing state.
+
+    Iterates over notes whose transcription is pending or processing, enqueues
+    them when the recording file still exists, and otherwise marks them as
+    failed with an "Audio file not found." error.
+
+    :return: None
+    :rtype: None
+    """
+
     notes = Note.query.filter(
         Note.transcription_status.in_(
             [TRANSCRIPTION_PENDING, TRANSCRIPTION_PROCESSING]
@@ -773,6 +1034,17 @@ def enqueue_existing_transcriptions():
 
 
 def enqueue_existing_key_points():
+    """
+    Re-enqueue key point extraction for completed notes still pending.
+
+    Finds notes whose transcription is completed but key points are pending or
+    processing, and schedules extract_key_points for each on the background
+    executor.
+
+    :return: None
+    :rtype: None
+    """
+
     notes = Note.query.filter(
         Note.transcription_status == TRANSCRIPTION_COMPLETED,
         Note.key_points_status.in_([KEY_POINTS_PENDING, KEY_POINTS_PROCESSING]),

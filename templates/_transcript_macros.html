@@ -20,3 +20,20 @@
 <p class="mb-0 note-text">{{ note.transcription or "No speech detected." }}</p>
 {%- endif %}
 {%- endmacro %}
+
+{% macro render_video_transcripts(note) %}
+{%- set video_transcripts = note.video_transcriptions | from_json -%}
+{%- if video_transcripts -%}
+<div class="video-transcripts mt-2">
+    <div class="small text-muted mb-1">Embedded video transcripts</div>
+    {%- for key, entry in video_transcripts.items() -%}
+    {%- if entry and entry.transcript -%}
+    <div class="mb-2">
+        <div class="small fw-semibold">{{ entry.title or "Embedded video" }}</div>
+        <p class="mb-0 note-text">{{ entry.transcript }}</p>
+    </div>
+    {%- endif -%}
+    {%- endfor -%}
+</div>
+{%- endif -%}
+{%- endmacro %}

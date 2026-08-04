@@ -47,6 +47,7 @@ class Note(db.Model):
     transcription_stage = db.Column(db.String(20), nullable=True)
 
     transcription_error = db.Column(db.Text, nullable=True)
+    video_transcriptions = db.Column(db.Text, nullable=True)
     title = db.Column(db.String(200), nullable=True)
     key_points = db.Column(db.Text, nullable=True)
     key_points_status = db.Column(
@@ -65,10 +66,22 @@ class Note(db.Model):
     )
 
     def speakers_by_order(self):
+        """
+        Return the note's speakers keyed by their order index.
+
+        :return: A dict mapping order index to Speaker instance.
+        :rtype: dict of int to Speaker
+        """
+
         return {speaker.order_index: speaker for speaker in self.speakers}
 
 
 class RecordingSession(db.Model):
+    """
+    Represents a recording session that manages uploaded audio chunks before
+    they are assembled into a Note.
+    """
+
     id = db.Column(db.Integer, primary_key=True)
     session_key = db.Column(db.String(32), nullable=False, unique=True, index=True)
     subject = db.Column(db.String(100), nullable=True)
@@ -84,6 +97,13 @@ class RecordingSession(db.Model):
     note = db.relationship("Note", backref="recording_session", uselist=False)
 
     def to_dict(self):
+        """
+        Convert the recording session to a serializable dictionary.
+
+        :return: A dict of the session's key attributes.
+        :rtype: dict
+        """
+
         return {
             "id": self.id,
             "session_key": self.session_key,
@@ -100,6 +120,10 @@ class RecordingSession(db.Model):
 
 
 class Speaker(db.Model):
+    """
+    Represents a speaker identified during diarization of a note's recording.
+    """
+
     id = db.Column(db.Integer, primary_key=True)
     note_id = db.Column(db.Integer, db.ForeignKey("note.id"), nullable=False)
     order_index = db.Column(db.Integer, nullable=False)
@@ -108,6 +132,13 @@ class Speaker(db.Model):
     color = db.Column(db.String(7), nullable=False)
 
     def to_dict(self):
+        """
+        Convert the speaker to a serializable dictionary.
+
+        :return: A dict of the speaker's key attributes.
+        :rtype: dict
+        """
+
         return {
             "id": self.id,
             "order_index": self.order_index,
@@ -118,10 +149,21 @@ class Speaker(db.Model):
 
 
 class Subject(db.Model):
+    """
+    Represents a subject that can be assigned to notes.
+    """
+
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False, unique=True)
 
     def to_dict(self):
+        """
+        Convert the subject to a serializable dictionary.
+
+        :return: A dict of the subject's id and name.
+        :rtype: dict
+        """
+
         return {"id": self.id, "name": self.name}
 
 
@@ -144,6 +186,10 @@ chat_session_notes = db.Table(
 
 
 class ChatSession(db.Model):
+    """
+    Represents a chat conversation over a set of selected notes.
+    """
+
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(200), nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
@@ -169,6 +215,10 @@ class ChatSession(db.Model):
 
 
 class ChatMessage(db.Model):
+    """
+    Represents a single message within a chat session.
+    """
+
     id = db.Column(db.Integer, primary_key=True)
     chat_session_id = db.Column(
         db.Integer, db.ForeignKey("chat_session.id"), nullable=False, index=True
@@ -180,6 +230,10 @@ class ChatMessage(db.Model):
 
 
 class Tag(db.Model):
+    """
+    Represents a tag that can be assigned to notes, optionally nested under a parent tag.
+    """
+
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     color = db.Column(db.String(7), nullable=False)
@@ -187,6 +241,13 @@ class Tag(db.Model):
     parent = db.relationship("Tag", remote_side=[id], backref="children")
 
     def to_dict(self):
+        """
+        Convert the tag to a serializable dictionary.
+
+        :return: A dict of the tag's key attributes.
+        :rtype: dict
+        """
+
         return {
             "id": self.id,
             "name": self.name,

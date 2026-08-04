@@ -3,6 +3,7 @@
 {% if note.transcription and note.transcription | length > 500 %}
 <div class="collapse" id="transcript-{{ note.id }}">
     {{ transcript.render_words(note, words) }}
+    {% if words %}{{ transcript.render_video_transcripts(note) }}{% endif %}
 </div>
 <button class="btn btn-link btn-sm ps-0 mt-1" type="button" data-bs-toggle="collapse"
     data-bs-target="#transcript-{{ note.id }}" aria-expanded="false" aria-controls="transcript-{{ note.id }}">
@@ -10,4 +11,5 @@
 </button>
 {% else %}
 {{ transcript.render_words(note, words) }}
+{% if words %}{{ transcript.render_video_transcripts(note) }}{% endif %}
 {% endif %}

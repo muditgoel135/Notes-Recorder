@@ -20,7 +20,7 @@
         </div>
 
         <div id="chat-filters-bar" class="row g-2 mb-3 align-items-end">
-            <div class="col-12 col-lg-3">
+            <div class="col-12 col-lg-4">
                 <label for="search-input" class="form-label small mb-1">Search</label>
                 <input type="search" id="search-input" class="form-control"
                     placeholder="Search title, transcript, subject, key points...">
@@ -33,32 +33,32 @@
                 <label for="date-to-input" class="form-label small mb-1">Date to</label>
                 <input type="date" id="date-to-input" class="form-control">
             </div>
-            <div class="col-6 col-lg-1">
+            <div class="col-6 col-lg-2">
                 <label for="time-from-input" class="form-label small mb-1">Time from</label>
                 <input type="time" id="time-from-input" class="form-control">
             </div>
-            <div class="col-6 col-lg-1">
+            <div class="col-6 col-lg-2">
                 <label for="time-to-input" class="form-label small mb-1">Time to</label>
                 <input type="time" id="time-to-input" class="form-control">
             </div>
-            <div class="col-6 col-lg-1 dropdown">
+            <div class="col-6 col-lg-5 dropdown">
                 <label class="form-label small mb-1 d-block">Tags</label>
-                <button class="btn btn-outline-secondary btn-sm dropdown-toggle w-100" type="button"
-                    data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                <button class="btn btn-outline-secondary dropdown-toggle w-100" type="button" data-bs-toggle="dropdown"
+                    data-bs-auto-close="outside" aria-expanded="false">
                     Tags <span id="tag-filter-count" class="badge bg-secondary d-none">0</span>
                 </button>
                 <div class="dropdown-menu p-2 tag-filter-menu" id="filter-tag-tree"></div>
             </div>
-            <div class="col-6 col-lg-1 dropdown">
+            <div class="col-6 col-lg-5 dropdown">
                 <label class="form-label small mb-1 d-block">Subject</label>
-                <button class="btn btn-outline-secondary btn-sm dropdown-toggle w-100" type="button"
-                    data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                <button class="btn btn-outline-secondary dropdown-toggle w-100" type="button" data-bs-toggle="dropdown"
+                    data-bs-auto-close="outside" aria-expanded="false">
                     Subject <span id="subject-filter-count" class="badge bg-secondary d-none">0</span>
                 </button>
                 <div class="dropdown-menu p-2 tag-filter-menu" id="filter-subject-list"></div>
             </div>
-            <div class="col-12 col-lg-1">
-                <button id="clear-filters-btn" type="button" class="btn btn-outline-secondary btn-sm w-100">
+            <div class="col-6 col-lg-2">
+                <button id="clear-filters-btn" type="button" class="btn btn-outline-secondary w-100">
                     Clear
                 </button>
             </div>

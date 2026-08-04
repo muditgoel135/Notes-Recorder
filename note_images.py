@@ -29,6 +29,13 @@ class RichNoteImageParser(HTMLParser):
     """
 
     def __init__(self):
+        """
+        Initialize the parser with an empty images list.
+
+        :return: None
+        :rtype: None
+        """
+
         super().__init__()
         self.images = []
 

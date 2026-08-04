@@ -63,9 +63,13 @@ from transcription import (
     enqueue_transcription,
     extract_key_points,
     format_transcript_with_speakers,
+    has_speaker_annotations,
     is_internet_available,
     transcription_executor,
 )
+
+# Import video_embeds.py
+from video_embeds import collect_video_embed_images, format_video_transcripts
 
 # Import text_filters.py
 from text_filters import (
@@ -92,6 +96,17 @@ from config import (
 
 
 def serialize_chat_note(note, include_preview=True):
+    """
+    Serialize a Note into a dict for the chat API.
+
+    :param note: The Note instance to serialize.
+    :type note: Note
+    :param include_preview: Whether to include a truncated preview text.
+    :type include_preview: bool
+    :return: A dict of the note's serialized attributes.
+    :rtype: dict
+    """
+
     preview_source = (
         note.key_points
         or rich_note_html_to_text(note.notes_html)
@@ -120,6 +135,17 @@ def serialize_chat_note(note, include_preview=True):
 
 
 def serialize_chat_message(message):
+    """
+    Serialize a ChatMessage into a dict for the chat API.
+
+    Renders assistant messages to markdown HTML.
+
+    :param message: The ChatMessage instance to serialize.
+    :type message: ChatMessage
+    :return: A dict of the message's serialized attributes.
+    :rtype: dict
+    """
+
     data = {
         "id": message.id,
         "role": message.role,
@@ -134,6 +160,17 @@ def serialize_chat_message(message):
 
 
 def serialize_chat_session(session, include_messages=False):
+    """
+    Serialize a ChatSession into a dict for the chat API.
+
+    :param session: The ChatSession instance to serialize.
+    :type session: ChatSession
+    :param include_messages: Whether to include the session's messages.
+    :type include_messages: bool
+    :return: A dict of the session's serialized attributes.
+    :rtype: dict
+    """
+
     data = {
         "id": session.id,
         "title": session.title or f"Chat {session.id}",
@@ -154,6 +191,18 @@ def serialize_chat_session(session, include_messages=False):
 
 
 def transcript_context_for_note(note):
+    """
+    Build the transcript context block for a note used in chat prompts.
+
+    Includes the note's metadata, tags, user notes, key points, transcript
+    (with speaker labels), and any embedded video transcripts.
+
+    :param note: The Note instance to build context for.
+    :type note: Note
+    :return: A formatted context string.
+    :rtype: str
+    """
+
     transcript = (
         format_transcript_with_speakers(note) if note.speakers else note.transcription
     )
@@ -176,10 +225,29 @@ def transcript_context_for_note(note):
         parts.append(f"Key points:\n{note.key_points}")
 
     parts.append(f"Transcript:\n{transcript or ''}")
+
+    video_transcript_text = format_video_transcripts(note)
+    if video_transcript_text and has_speaker_annotations(note):
+        parts.append(f"Embedded video transcripts:\n{video_transcript_text}")
+
     return "\n".join(parts)
 
 
 def call_ollama_for_chat(session):
+    """
+    Send a chat request to Ollama with the session's context.
+
+    Builds the system prompt, selected-note context, attached images, and prior
+    messages, then posts to Ollama and parses the reply.
+
+    :param session: The ChatSession containing notes and messages.
+    :type session: ChatSession
+    :return: A tuple of (content, error), where content is the assistant reply
+        string and error is None on success, or None and an (message, status)
+        tuple on failure.
+    :rtype: tuple of (str or None, tuple or None)
+    """
+
     if not OLLAMA_API_KEY:
         return None, ("OLLAMA_API_KEY is not configured.", 503)
 
@@ -191,6 +259,11 @@ def call_ollama_for_chat(session):
     )
 
     note_images = collect_ollama_note_images(session.notes)
+    video_images = collect_video_embed_images(session.notes)
+    for image in video_images:
+        if image not in note_images:
+            note_images.append(image)
+
     messages = [
         {
             "role": "system",
@@ -207,7 +280,8 @@ def call_ollama_for_chat(session):
         "role": "user",
         "content": (
             "Selected recording context follows. Images attached to this message were "
-            "embedded in the selected user notes.\n\n"
+            "embedded in the selected user notes or captured as keyframes from "
+            "embedded videos.\n\n"
             f"{context}"
         ),
     }
@@ -266,11 +340,25 @@ def call_ollama_for_chat(session):
 
 @app.route("/chat")
 def chat():
+    """
+    Render the chat page.
+
+    :return: The rendered chat template.
+    :rtype: str
+    """
+
     return render_template("chat.html")
 
 
 @app.route("/")
 def index():
+    """
+    Render the notes index page with optional filters.
+
+    :return: The rendered index template.
+    :rtype: str
+    """
+
     filters = parse_notes_filters_from_request()
     page = request.args.get("page", 1, type=int)
     if page < 1:
@@ -305,6 +393,13 @@ def index():
 
 @app.route("/api/notes")
 def api_notes():
+    """
+    Return a paginated, filtered notes list as JSON.
+
+    :return: A JSON response with the rendered list HTML and pagination info.
+    :rtype: flask.Response
+    """
+
     filters = parse_notes_filters_from_request()
     page = request.args.get("page", 1, type=int)
     if page < 1:
@@ -347,6 +442,13 @@ def api_notes():
 
 @app.route("/api/chat/recordings")
 def api_chat_recordings():
+    """
+    List recordings available for chat, filtered and with completed transcripts.
+
+    :return: A JSON response with the serialized recordings.
+    :rtype: flask.Response
+    """
+
     filters = parse_notes_filters_from_request()
     notes = (
         build_notes_query(**filters)
@@ -361,6 +463,13 @@ def api_chat_recordings():
 
 @app.route("/api/chat/sessions")
 def api_chat_sessions():
+    """
+    List all chat sessions ordered by most recently updated.
+
+    :return: A JSON response with the serialized sessions.
+    :rtype: flask.Response
+    """
+
     sessions = ChatSession.query.order_by(ChatSession.updated_at.desc()).all()
     return jsonify(
         {"sessions": [serialize_chat_session(session) for session in sessions]}
@@ -369,12 +478,28 @@ def api_chat_sessions():
 
 @app.route("/api/chat/sessions/<int:session_id>")
 def api_chat_session(session_id):
+    """
+    Return a single chat session with its messages.
+
+    :param session_id: ID of the chat session.
+    :type session_id: int
+    :return: A JSON response with the serialized session, or 404 if not found.
+    :rtype: flask.Response
+    """
+
     session = ChatSession.query.get_or_404(session_id)
     return jsonify({"session": serialize_chat_session(session, include_messages=True)})
 
 
 @app.route("/api/chat/sessions", methods=["POST"])
 def create_chat_session():
+    """
+    Create a chat session from the requested note ids.
+
+    :return: A JSON response with the created session, or an error.
+    :rtype: flask.Response
+    """
+
     data = request.get_json(silent=True) or {}
     note_ids = [
         int(note_id)
@@ -416,6 +541,15 @@ def create_chat_session():
 
 @app.route("/api/chat/sessions/<int:session_id>/messages", methods=["POST"])
 def create_chat_message(session_id):
+    """
+    Add a user message to a session and get the assistant's reply.
+
+    :param session_id: ID of the chat session.
+    :type session_id: int
+    :return: A JSON response with the messages, or an error.
+    :rtype: flask.Response
+    """
+
     session = ChatSession.query.get_or_404(session_id)
     data = request.get_json(silent=True) or {}
     content = (data.get("message") or "").strip()
@@ -468,6 +602,15 @@ def create_chat_message(session_id):
 
 @app.route("/api/chat/sessions/<int:session_id>/title", methods=["POST"])
 def update_chat_session_title(session_id):
+    """
+    Update a chat session's title.
+
+    :param session_id: ID of the chat session.
+    :type session_id: int
+    :return: A JSON response with the updated session, or an error.
+    :rtype: flask.Response
+    """
+
     session = ChatSession.query.get_or_404(session_id)
     data = request.get_json(silent=True) or {}
     title = (data.get("title") or "").strip()
@@ -482,6 +625,13 @@ def update_chat_session_title(session_id):
 
 @app.route("/save_recording", methods=["POST"])
 def save_recording():
+    """
+    Save an uploaded audio file and create a note for it.
+
+    :return: A JSON response with the new note id, or an error.
+    :rtype: flask.Response
+    """
+
     audio_file = request.files.get("audio")
     subject = request.form.get("subject")
     start_time = request.form.get("start_time")
@@ -499,6 +649,13 @@ def save_recording():
 
 @app.route("/api/recording_sessions", methods=["POST"])
 def create_recording_session_route():
+    """
+    Create a new recording session from the request payload.
+
+    :return: A JSON response with the created session, or an error.
+    :rtype: flask.Response
+    """
+
     data = request.get_json(silent=True) or {}
     subject = (data.get("subject") or "").strip()
     mime_type = (data.get("mime_type") or "").strip()
@@ -517,6 +674,15 @@ def create_recording_session_route():
 
 @app.route("/api/recording_sessions/<session_key>")
 def get_recording_session_route(session_key):
+    """
+    Return a recording session by its session key.
+
+    :param session_key: The session key string.
+    :type session_key: str
+    :return: A JSON response with the session, or 404 if not found.
+    :rtype: flask.Response
+    """
+
     session = get_session_by_key(session_key)
     if not session:
         return jsonify({"error": "Recording session was not found."}), 404
@@ -526,6 +692,15 @@ def get_recording_session_route(session_key):
 
 @app.route("/api/recording_sessions/<session_key>/notes", methods=["PATCH"])
 def update_recording_session_notes(session_key):
+    """
+    Update the rich notes HTML of an active recording session.
+
+    :param session_key: The session key string.
+    :type session_key: str
+    :return: A JSON response with the sanitized notes HTML, or an error.
+    :rtype: flask.Response
+    """
+
     session = get_session_by_key(session_key)
     if not session:
         return jsonify({"error": "Recording session was not found."}), 404
@@ -541,6 +716,15 @@ def update_recording_session_notes(session_key):
 
 @app.route("/api/recording_sessions/<session_key>/chunks", methods=["POST"])
 def save_recording_chunk_route(session_key):
+    """
+    Save an uploaded audio chunk for a recording session.
+
+    :param session_key: The session key string.
+    :type session_key: str
+    :return: A JSON response confirming the save, or an error.
+    :rtype: flask.Response
+    """
+
     session = get_session_by_key(session_key)
     if not session:
         return jsonify({"error": "Recording session was not found."}), 404
@@ -568,6 +752,15 @@ def save_recording_chunk_route(session_key):
 
 @app.route("/api/recording_sessions/<session_key>/finish", methods=["POST"])
 def finish_recording_session_route(session_key):
+    """
+    Finalize a recording session and create the resulting note.
+
+    :param session_key: The session key string.
+    :type session_key: str
+    :return: A JSON response with the new note id, or an error.
+    :rtype: flask.Response
+    """
+
     session = get_session_by_key(session_key)
     if not session:
         return jsonify({"error": "Recording session was not found."}), 404
@@ -585,6 +778,15 @@ def finish_recording_session_route(session_key):
 
 @app.route("/api/recording_sessions/<session_key>/cancel", methods=["POST"])
 def cancel_recording_session_route(session_key):
+    """
+    Cancel an active recording session.
+
+    :param session_key: The session key string.
+    :type session_key: str
+    :return: A JSON response confirming the cancelation, or an error.
+    :rtype: flask.Response
+    """
+
     session = get_session_by_key(session_key)
     if not session:
         return jsonify({"error": "Recording session was not found."}), 404
@@ -600,6 +802,13 @@ def cancel_recording_session_route(session_key):
 
 @app.route("/upload", methods=["POST"])
 def upload():
+    """
+    Handle a legacy upload form for an audio file.
+
+    :return: A redirect back to the index page.
+    :rtype: flask.Response
+    """
+
     uploaded_file = request.files.get("file")
     if not uploaded_file or uploaded_file.filename == "":
         return redirect(url_for("index"))
@@ -613,16 +822,41 @@ def upload():
 
 @app.route("/recordings/<path:filename>")
 def recording_file(filename):
+    """
+    Serve a stored recording file.
+
+    :param filename: Path of the recording within RECORDINGS_DIR.
+    :type filename: str
+    :return: The requested file.
+    :rtype: flask.Response
+    """
+
     return send_from_directory(RECORDINGS_DIR, filename)
 
 
 @app.route("/recordings/note_images/<path:filename>")
 def note_image_file(filename):
+    """
+    Serve a stored note image file.
+
+    :param filename: Path of the image within NOTE_IMAGES_DIR.
+    :type filename: str
+    :return: The requested image file.
+    :rtype: flask.Response
+    """
+
     return send_from_directory(NOTE_IMAGES_DIR, filename)
 
 
 @app.route("/api/note_images", methods=["POST"])
 def upload_note_image():
+    """
+    Upload an image to be embedded in a note.
+
+    :return: A JSON response with the image URL, or an error.
+    :rtype: flask.Response
+    """
+
     image_file = request.files.get("image")
     if not image_file or image_file.filename == "":
         return jsonify({"error": "No image received."}), 400
@@ -640,6 +874,15 @@ def upload_note_image():
 
 @app.route("/download_transcript/<int:note_id>")
 def download_transcript(note_id):
+    """
+    Download a note's transcript as a text file.
+
+    :param note_id: ID of the note.
+    :type note_id: int
+    :return: The transcript as an attachment, or 404 if unavailable.
+    :rtype: flask.Response
+    """
+
     note = Note.query.get_or_404(note_id)
     if not note.transcription:
         return jsonify({"error": "No transcript available."}), 404
@@ -654,6 +897,15 @@ def download_transcript(note_id):
 
 @app.route("/download_key_points/<int:note_id>")
 def download_key_points(note_id):
+    """
+    Download a note's key points as a markdown file.
+
+    :param note_id: ID of the note.
+    :type note_id: int
+    :return: The key points as an attachment, or 404 if unavailable.
+    :rtype: flask.Response
+    """
+
     note = Note.query.get_or_404(note_id)
     if not note.key_points:
         return jsonify({"error": "No key points available."}), 404
@@ -670,12 +922,26 @@ def download_key_points(note_id):
 
 @app.route("/api/subjects")
 def api_subjects():
+    """
+    List all subjects ordered by name.
+
+    :return: A JSON response with the serialized subjects.
+    :rtype: flask.Response
+    """
+
     subjects = Subject.query.order_by(Subject.name).all()
     return jsonify({"subjects": [subject.to_dict() for subject in subjects]})
 
 
 @app.route("/api/subjects", methods=["POST"])
 def create_subject():
+    """
+    Create a new subject.
+
+    :return: A JSON response with the created subject, or an error.
+    :rtype: flask.Response
+    """
+
     data = request.get_json(silent=True) or {}
     name = (data.get("name") or "").strip()
 
@@ -693,6 +959,15 @@ def create_subject():
 
 @app.route("/api/subjects/<int:subject_id>/delete", methods=["POST"])
 def delete_subject(subject_id):
+    """
+    Delete a subject.
+
+    :param subject_id: ID of the subject.
+    :type subject_id: int
+    :return: A JSON response confirming the deletion, or 404 if not found.
+    :rtype: flask.Response
+    """
+
     subject = Subject.query.get_or_404(subject_id)
     db.session.delete(subject)
     db.session.commit()
@@ -701,12 +976,26 @@ def delete_subject(subject_id):
 
 @app.route("/api/tags")
 def api_tags():
+    """
+    List all tags ordered by name.
+
+    :return: A JSON response with the serialized tags.
+    :rtype: flask.Response
+    """
+
     tags = Tag.query.order_by(Tag.name).all()
     return jsonify({"tags": [tag.to_dict() for tag in tags]})
 
 
 @app.route("/api/tags", methods=["POST"])
 def create_tag():
+    """
+    Create a new tag, optionally nested under a parent tag.
+
+    :return: A JSON response with the created tag, or an error.
+    :rtype: flask.Response
+    """
+
     data = request.get_json(silent=True) or {}
     name = (data.get("name") or "").strip()
     color = (data.get("color") or "").strip()
@@ -727,6 +1016,15 @@ def create_tag():
 
 @app.route("/api/tags/<int:tag_id>", methods=["POST"])
 def update_tag(tag_id):
+    """
+    Update a tag's name and color.
+
+    :param tag_id: ID of the tag.
+    :type tag_id: int
+    :return: A JSON response with the updated tag, or an error.
+    :rtype: flask.Response
+    """
+
     tag = Tag.query.get_or_404(tag_id)
     data = request.get_json(silent=True) or {}
     name = (data.get("name") or "").strip()
@@ -743,6 +1041,15 @@ def update_tag(tag_id):
 
 @app.route("/api/tags/<int:tag_id>/delete", methods=["POST"])
 def delete_tag(tag_id):
+    """
+    Delete a tag and all of its descendant tags.
+
+    :param tag_id: ID of the tag.
+    :type tag_id: int
+    :return: A JSON response confirming the deletion, or 404 if not found.
+    :rtype: flask.Response
+    """
+
     Tag.query.get_or_404(tag_id)
     ids_to_delete = get_tag_descendant_ids([tag_id])
     Tag.query.filter(Tag.id.in_(ids_to_delete)).delete(synchronize_session=False)
@@ -752,6 +1059,15 @@ def delete_tag(tag_id):
 
 @app.route("/notes/<int:note_id>/tags", methods=["POST"])
 def set_note_tags(note_id):
+    """
+    Set the tags assigned to a note.
+
+    :param note_id: ID of the note.
+    :type note_id: int
+    :return: A JSON response with the note's tags, or 404 if not found.
+    :rtype: flask.Response
+    """
+
     note = Note.query.get_or_404(note_id)
     data = request.get_json(silent=True) or {}
     tag_ids = [int(tag_id) for tag_id in (data.get("tag_ids") or [])]
@@ -762,6 +1078,15 @@ def set_note_tags(note_id):
 
 @app.route("/notes/<int:note_id>/subject", methods=["POST"])
 def update_note_subject(note_id):
+    """
+    Update a note's subject.
+
+    :param note_id: ID of the note.
+    :type note_id: int
+    :return: A JSON response with the updated subject, or an error.
+    :rtype: flask.Response
+    """
+
     note = Note.query.get_or_404(note_id)
     data = request.get_json(silent=True) or {}
     subject = (data.get("subject") or "").strip()
@@ -775,6 +1100,15 @@ def update_note_subject(note_id):
 
 
 def parse_note_date(value):
+    """
+    Parse a date string into a date object.
+
+    :param value: A date string in YYYY-MM-DD format.
+    :type value: str
+    :return: The parsed date, or None if the value is invalid.
+    :rtype: datetime.date or None
+    """
+
     try:
         return datetime.strptime(value, "%Y-%m-%d").date()
 
@@ -783,6 +1117,15 @@ def parse_note_date(value):
 
 
 def parse_note_time(value):
+    """
+    Parse a time string into a time object, accepting HH:MM or HH:MM:SS.
+
+    :param value: A time string in HH:MM or HH:MM:SS format.
+    :type value: str
+    :return: The parsed time, or None if the value is invalid.
+    :rtype: datetime.time or None
+    """
+
     value = (value or "").strip()
     if re.match(r"^\d{2}:\d{2}$", value):
         value = f"{value}:00"
@@ -796,6 +1139,15 @@ def parse_note_time(value):
 
 @app.route("/notes/<int:note_id>/datetime", methods=["POST"])
 def update_note_datetime(note_id):
+    """
+    Update a note's date and start time, preserving its duration.
+
+    :param note_id: ID of the note.
+    :type note_id: int
+    :return: A JSON response with the updated datetime fields, or an error.
+    :rtype: flask.Response
+    """
+
     note = Note.query.get_or_404(note_id)
     data = request.get_json(silent=True) or {}
     new_date = parse_note_date((data.get("date") or "").strip())
@@ -827,6 +1179,17 @@ def update_note_datetime(note_id):
 
 @app.route("/notes/<int:note_id>/speakers/<int:speaker_id>/rename", methods=["POST"])
 def rename_speaker(note_id, speaker_id):
+    """
+    Rename a speaker of a note.
+
+    :param note_id: ID of the note.
+    :type note_id: int
+    :param speaker_id: ID of the speaker.
+    :type speaker_id: int
+    :return: A JSON response with the updated speaker, or an error.
+    :rtype: flask.Response
+    """
+
     speaker = Speaker.query.filter_by(id=speaker_id, note_id=note_id).first_or_404()
     data = request.get_json(silent=True) or {}
     name = (data.get("name") or "").strip()
@@ -841,6 +1204,15 @@ def rename_speaker(note_id, speaker_id):
 
 @app.route("/notes/<int:note_id>/retry_transcription", methods=["POST"])
 def retry_transcription(note_id):
+    """
+    Reset a note's transcription status and re-enqueue it.
+
+    :param note_id: ID of the note.
+    :type note_id: int
+    :return: A JSON response confirming the retry, or an error.
+    :rtype: flask.Response
+    """
+
     note = Note.query.get_or_404(note_id)
     if not note.recording_path:
         return jsonify({"error": "No recording available to retranscribe."}), 400
@@ -860,6 +1232,15 @@ def retry_transcription(note_id):
 
 @app.route("/notes/<int:note_id>/retry_key_points", methods=["POST"])
 def retry_key_points(note_id):
+    """
+    Reset a note's key points status and re-enqueue extraction.
+
+    :param note_id: ID of the note.
+    :type note_id: int
+    :return: A JSON response confirming the retry, or an error.
+    :rtype: flask.Response
+    """
+
     note = Note.query.get_or_404(note_id)
     if note.transcription_status != TRANSCRIPTION_COMPLETED or not note.transcription:
         return jsonify({"error": "Transcript is not available yet."}), 400
@@ -879,6 +1260,15 @@ def retry_key_points(note_id):
 
 @app.route("/notes/<int:note_id>/notes", methods=["POST"])
 def update_note_rich_notes(note_id):
+    """
+    Update a note's rich notes HTML and regenerate key points if ready.
+
+    :param note_id: ID of the note.
+    :type note_id: int
+    :return: A JSON response with the updated notes state, or 404 if not found.
+    :rtype: flask.Response
+    """
+
     note = Note.query.get_or_404(note_id)
     data = request.get_json(silent=True) or {}
     note.notes_html = sanitize_rich_note_html(data.get("notes_html"))
@@ -920,6 +1310,15 @@ def update_note_rich_notes(note_id):
 
 @app.route("/update_note/<int:note_id>", methods=["POST"])
 def update_note(note_id):
+    """
+    Update a note's title and key points.
+
+    :param note_id: ID of the note.
+    :type note_id: int
+    :return: A JSON response confirming the update, or 404 if not found.
+    :rtype: flask.Response
+    """
+
     note = Note.query.get_or_404(note_id)
     data = request.get_json(silent=True) or {}
     title = (data.get("title") or "").strip()
@@ -933,6 +1332,15 @@ def update_note(note_id):
 
 @app.route("/delete/<int:note_id>", methods=["POST"])
 def delete_note(note_id):
+    """
+    Delete a note and its recording file.
+
+    :param note_id: ID of the note.
+    :type note_id: int
+    :return: A JSON response for AJAX requests, or a redirect otherwise.
+    :rtype: flask.Response
+    """
+
     note = Note.query.get_or_404(note_id)
     if note.recording_path:
         recording_file_path = os.path.join(BASE_DIR, note.recording_path)
