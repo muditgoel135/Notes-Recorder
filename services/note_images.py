@@ -11,9 +11,9 @@ import re
 from html.parser import HTMLParser
 from urllib.parse import unquote, urlparse
 
-# Import configuration and text filter functions
-from config import NOTE_IMAGES_DIR
-from text_filters import sanitize_rich_note_html
+# Import core.config and text filter helpers
+from core.config import NOTE_IMAGES_DIR
+from services.text_filters import sanitize_rich_note_html
 
 LOCAL_NOTE_IMAGE_ROUTE = "/recordings/note_images/"
 SUPPORTED_OLLAMA_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}

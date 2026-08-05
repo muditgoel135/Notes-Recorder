@@ -11,10 +11,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RECORDINGS_DIR = os.path.join(BASE_DIR, "recordings")
 NOTE_IMAGES_DIR = os.path.join(RECORDINGS_DIR, "note_images")
 VIDEO_CACHE_DIR = os.path.join(RECORDINGS_DIR, "video_cache")
+
+SECRET_KEY = os.environ.get("SECRET_KEY", "default_secret_key")
 
 ALLOWED_EXTENSIONS = {"wav", "mp3", "ogg", "webm", "m4a", "mp4"}
 
@@ -38,6 +40,8 @@ KEY_POINTS_RETRY_SECONDS = int(os.environ.get("KEY_POINTS_RETRY_SECONDS", "30"))
 VIDEO_KEYFRAME_COUNT = int(os.environ.get("VIDEO_KEYFRAME_COUNT", "6"))
 
 DEFAULT_PER_PAGE = int(os.environ.get("DEFAULT_PER_PAGE", "10"))
+
+DEFAULT_UNIT = "General"
 
 HUGGINGFACE_TOKEN = os.environ.get("HUGGINGFACE_TOKEN", "")
 

@@ -8,9 +8,9 @@ Database models for the Flask app.
 from collections import defaultdict
 from datetime import datetime
 
-# Import SQLAlchemy and the database instance
-from extensions import db
-from config import TRANSCRIPTION_PENDING, KEY_POINTS_PENDING
+# Import the database instance and config constants
+from core.extensions import db
+from core.config import TRANSCRIPTION_PENDING, KEY_POINTS_PENDING, DEFAULT_UNIT
 
 SPEAKER_COLOR_PALETTE = [
     "#4c78a8",
@@ -35,6 +35,7 @@ class Note(db.Model):
     start_time = db.Column(db.String(8), nullable=False)
     end_time = db.Column(db.String(8), nullable=True)
     subject = db.Column(db.String(100), nullable=True)
+    unit = db.Column(db.String(100), nullable=True, default=DEFAULT_UNIT)
     recording_path = db.Column(db.String(200), nullable=True)
     notes_html = db.Column(db.Text, nullable=True)
     transcription = db.Column(db.Text, nullable=True)
@@ -57,6 +58,7 @@ class Note(db.Model):
     key_points_generation = db.Column(db.Integer, nullable=False, default=0)
 
     key_points_error = db.Column(db.Text, nullable=True)
+    pinned = db.Column(db.Boolean, nullable=False, default=False)
     tags = db.relationship("Tag", secondary="note_tags", backref="notes")
     speakers = db.relationship(
         "Speaker",
@@ -85,6 +87,7 @@ class RecordingSession(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     session_key = db.Column(db.String(32), nullable=False, unique=True, index=True)
     subject = db.Column(db.String(100), nullable=True)
+    unit = db.Column(db.String(100), nullable=True, default=DEFAULT_UNIT)
     start_time = db.Column(db.String(8), nullable=False)
     end_time = db.Column(db.String(8), nullable=True)
     status = db.Column(db.String(20), nullable=False, default="active")
@@ -108,6 +111,7 @@ class RecordingSession(db.Model):
             "id": self.id,
             "session_key": self.session_key,
             "subject": self.subject,
+            "unit": self.unit or DEFAULT_UNIT,
             "start_time": self.start_time,
             "end_time": self.end_time,
             "status": self.status,
@@ -155,6 +159,12 @@ class Subject(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False, unique=True)
+    units = db.relationship(
+        "Unit",
+        order_by="Unit.name",
+        cascade="all, delete-orphan",
+        backref="subject",
+    )
 
     def to_dict(self):
         """
@@ -165,6 +175,27 @@ class Subject(db.Model):
         """
 
         return {"id": self.id, "name": self.name}
+
+
+class Unit(db.Model):
+    """
+    Represents a unit (chapter) within a subject that can be assigned to notes.
+    """
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    subject_id = db.Column(db.Integer, db.ForeignKey("subject.id"), nullable=False)
+    __table_args__ = (db.UniqueConstraint("subject_id", "name"),)
+
+    def to_dict(self):
+        """
+        Convert the unit to a serializable dictionary.
+
+        :return: A dict of the unit's id, name, and subject id.
+        :rtype: dict
+        """
+
+        return {"id": self.id, "name": self.name, "subject_id": self.subject_id}
 
 
 note_tags = db.Table(

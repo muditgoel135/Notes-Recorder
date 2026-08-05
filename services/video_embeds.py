@@ -19,15 +19,15 @@ from urllib.parse import urlparse
 # Import third-party libraries
 import yt_dlp
 
-# Import config, extensions, and text filters
-from config import (
+# Import core.config, core.extensions, and text filter helpers
+from core.config import (
     HINDI_INITIAL_PROMPT,
     HINDI_SUBJECT,
     VIDEO_CACHE_DIR,
     VIDEO_KEYFRAME_COUNT,
 )
-from extensions import db
-from text_filters import sanitize_rich_note_html
+from core.extensions import db
+from services.text_filters import sanitize_rich_note_html
 
 
 class _VideoEmbedParser(HTMLParser):
@@ -620,9 +620,9 @@ def _transcribe_audio(audio_path, note):
     :rtype: str
     """
 
-    # Imported lazily to avoid a circular import (transcription.py imports this
-    # module at the top level).
-    from transcription import get_whisper_model  # noqa: PLC0415
+    # Imported lazily to avoid a circular import (audio.transcription imports
+    # this module at the top level).
+    from audio.transcription import get_whisper_model  # noqa: PLC0415
 
     transcribe_kwargs = {
         "fp16": False,

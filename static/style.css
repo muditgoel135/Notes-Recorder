@@ -477,3 +477,31 @@ ul.tag-tree {
 .notebox {
     min-width: 18rem;
 }
+
+.pin-note-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pin-note-btn svg {
+    display: block;
+    fill: none;
+}
+
+.pin-note-btn.pinned {
+    color: #0d6efd;
+    border-color: #0d6efd;
+}
+
+.pin-note-btn.pinned svg {
+    fill: currentColor;
+}
+
+.pin-note-btn.pinned svg circle {
+    fill: #fff;
+}
+
+.pinned-note-item {
+    background-color: #f0f6ff;
+}

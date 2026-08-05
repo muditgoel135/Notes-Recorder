@@ -7,7 +7,7 @@ A small Flask app for recording class notes from the browser microphone, transcr
 - Record audio directly in the browser.
 - Audio is recorded in chunks and uploaded in real-time to the server, ensuring that recordings are preserved even if the browser crashes or the page is refreshed.
 - Use a robust session-based chunking system that saves audio segments into unique session folders on the server, supports reload recovery, and lets an in-progress recording be canceled.
-- Choose a subject before recording; subjects are managed in-app (add or delete via **Manage Subjects**) rather than hardcoded, and a note's subject can be edited afterwards.
+- Choose a subject before recording; subjects are managed in-app (add or delete via **Manage Subjects**) rather than hardcoded, and a note's subject can be edited afterwards. Each note also carries a **unit** (a sub-category of its subject, e.g. a chapter; default "General") that is set when editing a note's subject and can be used to filter the notes list.
 - Start and stop recordings manually.
 - Save recordings to the local `recordings/` folder.
 - Upload existing audio files; uploads are added under the `Uploaded` subject by default and can be edited afterwards.
@@ -26,12 +26,14 @@ A small Flask app for recording class notes from the browser microphone, transcr
 - Download a note's transcript (`.txt`) or key points (`.md`).
 - Click a word in the transcript to jump playback to that point in the audio, with the current word highlighted as it plays. A **Sync transcript with audio playback** checkbox toggles this behavior on or off (remembered across visits).
 - Hierarchical tags: organize notes with nested tags, each with a custom color, managed in-app via **Manage Tags** (add, edit, delete, or add a subtag), and filter the notes list by tag. Filtering by a parent tag includes its subtags.
-- Search and filter notes by text, date range, time range, and subject.
+- Search and filter notes by text, date range, time range, subject and unit, transcription/key-points status (pending, processing, completed, or failed), or whether a note has any saved user notes (**Empty notes only**). Results can be sorted by date, title, subject, or transcription/key-points status.
 - Render markdown tables in generated key points and chat answers.
 - For notes recorded under the "Hindi" subject, transcription is tuned for Hindi speech (with English words/phrases transcribed in English) using a Hindi-specific prompt and language setting.
 - Paginated notes list.
 - Delete a note, which also removes its saved recording file.
-- Store recording, note, tag, speaker, subject, and chat metadata in SQLite.
+- Batch operations on multiple recordings: select checkboxes (or select the whole filtered result set) to delete several notes at once, change the subject of several notes at once (resetting their unit to "General"), add one tag to many recordings, or export multiple recordings together as a zip (audio plus transcripts, key points, and rich-note text, plus a `summary.txt`).
+- Pin a recording to keep it at the top of the list; pinned recordings are shown in a separate **Pinned recordings** section above the rest, regardless of the current sort order.
+- Store recording, note, tag, speaker, subject, unit, and chat metadata in SQLite.
 
 ## Tech Stack
 
@@ -51,15 +53,25 @@ A small Flask app for recording class notes from the browser microphone, transcr
 ```text
 Notes-Recorder/
 |-- app.py             # entry point: wires everything together, starts the app
-|-- extensions.py       # Flask app + SQLAlchemy db instances
-|-- config.py           # environment-derived settings and constants
-|-- models.py           # Note, Speaker, Subject, Tag, and chat database models
-|-- notes_query.py      # DB init/migration and notes list querying
-|-- note_images.py      # rich-note image extraction and Ollama image encoding helpers
-|-- recordings.py       # audio file storage helpers
-|-- transcription.py    # Whisper transcription, diarization, Ollama key points
-|-- routes.py           # Flask view functions
-|-- text_filters.py     # Jinja template filters (markdown, from_json)
+|-- core/
+|   |-- extensions.py   # Flask app + SQLAlchemy db instances
+|   |-- config.py       # environment-derived settings and constants
+|   `-- models.py       # Note, Speaker, Subject, Unit, Tag, and chat database models
+|-- services/
+|   |-- notes_query.py  # DB init/migration and notes list querying
+|   |-- note_images.py  # rich-note image extraction and Ollama image encoding helpers
+|   |-- text_filters.py # Jinja template filters (markdown, from_json)
+|   `-- video_embeds.py # embedded YouTube/Vimeo download, transcription, and keyframes
+|-- audio/
+|   |-- recordings.py       # audio file storage helpers
+|   `-- transcription.py    # Whisper transcription, diarization, Ollama key points
+|-- routes/
+|   |-- __init__.py     # imports submodules to register Flask view functions
+|   |-- chat.py         # chat page, chat session management, Ollama chat
+|   |-- notes.py        # notes listing, filters, and per-note updates
+|   |-- recordings.py   # recording upload, recording session, and file-serving routes
+|   |-- taxonomy.py     # subject, unit, and tag routes
+|   `-- bulk.py         # bulk delete, subject, tagging, and export routes
 |-- LICENSE.txt
 |-- requirements.txt
 |-- templates/
@@ -146,18 +158,20 @@ http://127.0.0.1:5000/
 5. Click **Stop Recording** when you are done.
 6. The recording is saved and appears in the recordings list, including any rich notes captured during recording.
 7. Transcription and key-points extraction run in the background; the list updates automatically as they complete, showing a live progress bar while transcription is in progress.
-8. Edit a note's title, key points, rich notes, tags, subject, or date/time inline if needed. Editing rich notes automatically queues fresh key-points extraction when a transcript exists.
+8. Edit a note's title, key points, rich notes, tags, subject (including its unit), or date/time inline if needed. Editing rich notes automatically queues fresh key-points extraction when a transcript exists.
 9. Use **Retry transcription** (next to **Show full transcript**) or **Retry key points** (next to **Show key points**) to redo either step at any time -- including after a failure, or just to regenerate with an updated model.
 10. Once transcription or key-points extraction complete, download them from the note's **Download transcript** / **Download key points** buttons.
 11. Click a word in the transcript to jump the audio to that point; the word being spoken is highlighted during playback.
 12. Use the rich notes toolbar to add formatting, links, tables, uploaded images, and LaTeX formulas. Existing formulas can be clicked to reopen them in the math editor.
 13. When diarization is configured, each speaker turn shows a colored badge (e.g. "Speaker 1"); click a badge to rename that speaker for the note (e.g. "Teacher").
 14. Assign hierarchical tags to a note and filter the notes list by tag. Use **Manage Tags** to create, edit (name/color), delete, or nest tags as subtags. Deleting a tag also deletes its subtags.
-15. Use **Manage Subjects** to add or delete subjects available when starting a recording.
-16. Filter the notes list by one or more subjects using the **Subject** dropdown.
-17. Click **Chat with Recordings** to start or reopen saved chats. The recording picker uses the current search/date/time/tag/subject filters and only includes recordings with completed transcripts.
-18. Select one or more recordings, click **Start chat** or send a first message to create the chat, then use **Rename** to update the saved chat title if needed.
-19. Click **Delete** on a note to remove it, along with its saved recording file.
+15. Use **Manage Subjects** to add or delete subjects, and to create or delete **units** (sub-categories like chapters) within a subject.
+16. Filter the notes list by subject/unit, transcription status, key-points status, or "empty notes" using the dropdowns above the list, and reorder results with the **Sort by** dropdown (pinned recordings always come first).
+17. Pin a recording to the top of the list with the pin button on its card, and unpin it the same way.
+18. Select several recordings with their checkboxes — **This page** selects the current page and **Select all results** selects every note matching the current filters — then use the toolbar to **Change subject**, **Add tag**, **Export** (download a zip), **Clear**, or **Delete** them in bulk.
+19. Click **Chat with Recordings** to start or reopen saved chats. The recording picker uses the current search/date/time/tag/subject filters and only includes recordings with completed transcripts.
+20. Select one or more recordings, click **Start chat** or send a first message to create the chat, then use **Rename** to update the saved chat title if needed.
+21. Click **Delete** on a note to remove it, along with its saved recording file.
 
 You can also upload existing `.wav`, `.mp3`, `.ogg`, `.webm`, `.m4a`, or `.mp4` audio files.
 
@@ -172,6 +186,7 @@ Use the search box and date/time filters above the notes list to find recordings
 - WebM recordings are patched with duration metadata when possible so saved browser recordings report a useful playback length.
 - Saved recording files are ignored by Git through `recordings/` in `.gitignore`.
 - The app creates or updates its SQLite tables on startup, and seeds a default subject list (Math, Physics, Chemistry, Biology, English, Hindi, Individuals and Societies) the first time it runs with no subjects yet. Manage or replace these afterwards via **Manage Subjects**. Deleting a subject removes it from the picker; existing notes keep their stored subject text.
+- Every note is assigned a unit that defaults to "General". Changing a note's subject keeps its unit only if that unit exists under the new subject, otherwise the unit resets to "General" (bulk subject changes also reset units to "General").
 - Transcription and key-points extraction run one at a time in a background worker; large backlogs process sequentially. On startup, pending or interrupted transcriptions/key-point jobs are re-queued unless `TRANSCRIBE_EXISTING_ON_STARTUP=false`.
 - The first transcription run downloads the selected Whisper model, which can take a while depending on model size and network speed.
 - The app can be used fully offline for recording and transcription. Key-points extraction needs internet access to reach Ollama; while offline it shows as "Extracting key points..." and retries automatically until a connection is available.

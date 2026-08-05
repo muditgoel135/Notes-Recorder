@@ -14,11 +14,16 @@ import subprocess
 import uuid
 from werkzeug.utils import secure_filename
 
-# Import extensions, models, config, and transciption
-from extensions import db
-from models import Note, RecordingSession
-from config import ALLOWED_EXTENSIONS, RECORDINGS_DIR, TRANSCRIPTION_PENDING
-from transcription import enqueue_transcription
+# Import core extensions, models, config, and audio transcription
+from core.extensions import db
+from core.models import Note, RecordingSession
+from core.config import (
+    ALLOWED_EXTENSIONS,
+    RECORDINGS_DIR,
+    TRANSCRIPTION_PENDING,
+    DEFAULT_UNIT,
+)
+from audio.transcription import enqueue_transcription
 
 if not os.path.exists(RECORDINGS_DIR):
     os.makedirs(RECORDINGS_DIR)
@@ -103,6 +108,7 @@ def save_audio_file(file_storage, subject, start_time=None, end_time=None):
         start_time=start_time,
         end_time=end_time,
         subject=subject,
+        unit=DEFAULT_UNIT,
         recording_path=relative_path,
         transcription_status=TRANSCRIPTION_PENDING,
     )
@@ -133,6 +139,7 @@ def create_recording_session(subject, mime_type, extension, start_time=None):
     session = RecordingSession(
         session_key=uuid.uuid4().hex,
         subject=(subject or "unnamed")[:100],
+        unit=DEFAULT_UNIT,
         start_time=start_time or now.strftime("%H:%M:%S"),
         status=ACTIVE_RECORDING_STATUS,
         mime_type=(mime_type or "")[:100],
@@ -275,6 +282,7 @@ def finish_recording_session(session, end_time=None):
         start_time=session.start_time,
         end_time=end_time,
         subject=session.subject,
+        unit=session.unit or DEFAULT_UNIT,
         recording_path=relative_path,
         notes_html=session.notes_html,
         transcription_status=TRANSCRIPTION_PENDING,

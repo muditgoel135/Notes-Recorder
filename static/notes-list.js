@@ -18,6 +18,93 @@ document.getElementById("recordings-list").addEventListener("click", async (even
     const retryTranscriptionButton = event.target.closest(".retry-transcription-btn");
     const retryKeyPointsButton = event.target.closest(".retry-key-points-btn");
     const deleteButton = event.target.closest(".delete-note-btn");
+    const pinButton = event.target.closest(".pin-note-btn");
+    const selectAllButton = event.target.closest("#select-all-btn");
+    const clearSelectionButton = event.target.closest("#clear-selection-btn");
+    const bulkSubjectButton = event.target.closest("#bulk-subject-btn");
+    const bulkAddTagButton = event.target.closest("#bulk-add-tag-btn");
+    const bulkExportButton = event.target.closest("#bulk-export-btn");
+    const bulkDeleteButton = event.target.closest("#bulk-delete-btn");
+
+    if (selectAllButton) {
+        selectAllButton.disabled = true;
+        try {
+            const params = new URLSearchParams();
+            const filters = getCurrentFilters();
+            if (filters.q) params.set("q", filters.q);
+            if (filters.date_from) params.set("date_from", filters.date_from);
+            if (filters.date_to) params.set("date_to", filters.date_to);
+            if (filters.time_from) params.set("time_from", filters.time_from);
+            if (filters.time_to) params.set("time_to", filters.time_to);
+            if (filters.tags) params.set("tags", filters.tags);
+            if (filters.subjects) params.set("subjects", filters.subjects);
+            if (filters.units) params.set("units", filters.units);
+            if (filters.transcription_statuses) params.set("transcription_statuses", filters.transcription_statuses);
+            if (filters.key_points_statuses) params.set("key_points_statuses", filters.key_points_statuses);
+            if (filters.empty_notes) params.set("empty_notes", "1");
+            params.set("sort", filters.sort);
+
+            const response = await fetch(`/api/notes/ids?${params.toString()}`);
+            if (!response.ok) {
+                throw new Error("Could not list matching recordings.");
+            }
+            const data = await response.json();
+            (data.ids || []).forEach((id) => selectedNoteIds.add(id));
+            updateSelectionUI();
+        } catch (error) {
+            alert(error.message);
+        } finally {
+            selectAllButton.disabled = false;
+        }
+        return;
+    }
+
+    if (clearSelectionButton) {
+        selectedNoteIds.clear();
+        updateSelectionUI();
+        return;
+    }
+
+    if (bulkSubjectButton) {
+        openBulkSubjectModal();
+        return;
+    }
+
+    if (bulkAddTagButton) {
+        openBulkAddTagModal();
+        return;
+    }
+
+    if (bulkExportButton) {
+        exportSelectedNotes();
+        return;
+    }
+
+    if (bulkDeleteButton) {
+        bulkDeleteNotes();
+        return;
+    }
+
+    if (pinButton) {
+        const noteId = pinButton.dataset.noteId;
+        pinButton.disabled = true;
+        try {
+            const response = await fetch(`/notes/${noteId}/pin`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+            });
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.error || "Could not update pin.");
+            }
+            const data = await response.json();
+            fetchAndRenderNotes(data.pinned ? 1 : currentPage);
+        } catch (error) {
+            pinButton.disabled = false;
+            alert(error.message);
+        }
+        return;
+    }
 
     if (deleteButton) {
         event.preventDefault();
@@ -118,12 +205,14 @@ document.getElementById("recordings-list").addEventListener("click", async (even
         const noteId = saveSubjectButton.dataset.noteId;
         const editRow = document.querySelector(`.note-subject-edit[data-note-id="${noteId}"]`);
         const subject = editRow.querySelector(".note-subject-input").value;
+        const unitInput = editRow.querySelector(".note-unit-input");
+        const unit = unitInput ? unitInput.value : DEFAULT_UNIT;
         saveSubjectButton.disabled = true;
         try {
             const response = await fetch(`/notes/${noteId}/subject`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ subject }),
+                body: JSON.stringify({ subject, unit }),
             });
             if (!response.ok) {
                 const data = await response.json().catch(() => ({}));
@@ -286,6 +375,240 @@ document.getElementById("recordings-list").addEventListener("click", async (even
 });
 
 const syncToggle = document.getElementById("sync-toggle");
+
+// --- Bulk selection ---
+
+let selectedNoteIds = new Set();
+
+function updateSelectionUI() {
+    const countLabel = document.getElementById("selection-count");
+    const buttons = document.querySelectorAll(
+        "#bulk-subject-btn, #bulk-add-tag-btn, #bulk-export-btn, #bulk-delete-btn, #clear-selection-btn"
+    );
+    const count = selectedNoteIds.size;
+    if (countLabel) {
+        countLabel.textContent =
+            count === 1 ? "1 recording selected" : `${count} recordings selected`;
+    }
+    buttons.forEach((button) => {
+        button.disabled = count === 0;
+    });
+
+    const selectPageCheckbox = document.getElementById("select-page-checkbox");
+    if (!selectPageCheckbox) {
+        return;
+    }
+    const pageCheckboxes = Array.from(
+        document.querySelectorAll(".note-select-checkbox")
+    );
+    const pageSelected = pageCheckboxes.filter((checkbox) =>
+        selectedNoteIds.has(Number(checkbox.dataset.noteId))
+    ).length;
+    if (pageCheckboxes.length === 0) {
+        selectPageCheckbox.checked = false;
+        selectPageCheckbox.indeterminate = false;
+        selectPageCheckbox.disabled = true;
+        return;
+    }
+    selectPageCheckbox.disabled = false;
+    selectPageCheckbox.checked = pageSelected === pageCheckboxes.length;
+    selectPageCheckbox.indeterminate = pageSelected > 0 && pageSelected < pageCheckboxes.length;
+}
+
+function restoreNoteSelection() {
+    document.querySelectorAll(".note-select-checkbox").forEach((checkbox) => {
+        checkbox.checked = selectedNoteIds.has(Number(checkbox.dataset.noteId));
+    });
+    updateSelectionUI();
+}
+
+document.getElementById("recordings-list").addEventListener("change", (event) => {
+    const subjectInput = event.target.closest(".note-subject-input");
+    if (subjectInput) {
+        const editRow = subjectInput.closest(".note-subject-edit");
+        const unitSelect = editRow ? editRow.querySelector(".note-unit-input") : null;
+        if (unitSelect) {
+            const units = (buildUnitsBySubjectName()[subjectInput.value] || []);
+            unitSelect.innerHTML =
+                `<option value="${escapeHtml(DEFAULT_UNIT)}">${escapeHtml(DEFAULT_UNIT)}</option>` +
+                units.map((unit) =>
+                    `<option value="${escapeHtml(unit)}">${escapeHtml(unit)}</option>`
+                ).join("");
+        }
+        return;
+    }
+
+    const selectPageCheckbox = event.target.closest("#select-page-checkbox");
+    if (selectPageCheckbox) {
+        document.querySelectorAll(".note-select-checkbox").forEach((checkbox) => {
+            const noteId = Number(checkbox.dataset.noteId);
+            if (selectPageCheckbox.checked) {
+                selectedNoteIds.add(noteId);
+            } else {
+                selectedNoteIds.delete(noteId);
+            }
+        });
+        updateSelectionUI();
+        return;
+    }
+
+    const checkbox = event.target.closest(".note-select-checkbox");
+    if (!checkbox) {
+        return;
+    }
+    const noteId = Number(checkbox.dataset.noteId);
+    if (checkbox.checked) {
+        selectedNoteIds.add(noteId);
+    } else {
+        selectedNoteIds.delete(noteId);
+    }
+    updateSelectionUI();
+});
+
+async function postBulkAction(action, payload) {
+    const response = await fetch(`/api/notes/${action}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "Operation failed.");
+    }
+    return response.json();
+}
+
+function openBulkSubjectModal() {
+    const select = document.getElementById("bulk-subject-select");
+    select.innerHTML = allSubjects
+        .map((subject) =>
+            `<option value="${escapeHtml(subject.name)}">${escapeHtml(subject.name)}</option>`
+        )
+        .join("");
+    document.getElementById("bulk-subject-error").classList.add("d-none");
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("bulk-subject-modal")).show();
+}
+
+function renderBulkTagTree() {
+    const tree = buildTagTree(allTags);
+    const container = document.getElementById("bulk-tag-tree");
+    container.innerHTML = tree.length
+        ? `<ul class="tag-tree">${renderRadioNodes(tree)}</ul>`
+        : '<p class="text-muted small mb-0">No tags yet. Create some via Manage Tags.</p>';
+}
+
+function renderRadioNodes(nodes, name = "bulk-tag-radio") {
+    return nodes.map((node) => `
+        <li>
+            <label class="d-flex align-items-center gap-2">
+                <input type="radio" class="bulk-tag-radio" name="${name}" value="${node.id}">
+                <span class="tag-badge" style="background-color:${node.color}">${escapeHtml(node.name)}</span>
+            </label>
+            ${node.children.length ? `<ul class="tag-children">${renderRadioNodes(node.children, name)}</ul>` : ""}
+        </li>
+    `).join("");
+}
+
+function openBulkAddTagModal() {
+    renderBulkTagTree();
+    document.getElementById("bulk-add-tag-error").classList.add("d-none");
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("bulk-add-tag-modal")).show();
+}
+
+async function bulkDeleteNotes() {
+    const count = selectedNoteIds.size;
+    if (count === 0) {
+        return;
+    }
+    if (!confirm(`Delete ${count} recording${count === 1 ? "" : "s"}?`)) {
+        return;
+    }
+    try {
+        await postBulkAction("bulk_delete", { note_ids: Array.from(selectedNoteIds) });
+        selectedNoteIds.clear();
+        await fetchAndRenderNotes(currentPage);
+    } catch (error) {
+        alert(error.message);
+    }
+}
+
+async function exportSelectedNotes() {
+    if (selectedNoteIds.size === 0) {
+        return;
+    }
+    try {
+        const response = await fetch("/api/notes/bulk_export", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ note_ids: Array.from(selectedNoteIds) }),
+        });
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.error || "Could not export recordings.");
+        }
+        const blob = await response.blob();
+        const disposition = response.headers.get("Content-Disposition") || "";
+        const match = disposition.match(/filename="?([^"]+)"?/);
+        const filename = match ? match[1] : "notes_export.zip";
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = filename;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(url);
+    } catch (error) {
+        alert(error.message);
+    }
+}
+
+document.getElementById("save-bulk-subject-btn").addEventListener("click", async () => {
+    const subject = document.getElementById("bulk-subject-select").value;
+    const errorBox = document.getElementById("bulk-subject-error");
+    const saveButton = document.getElementById("save-bulk-subject-btn");
+    errorBox.classList.add("d-none");
+    saveButton.disabled = true;
+    try {
+        await postBulkAction("bulk_subject", {
+            note_ids: Array.from(selectedNoteIds),
+            subject,
+        });
+        bootstrap.Modal.getInstance(document.getElementById("bulk-subject-modal")).hide();
+        await fetchAndRenderNotes(currentPage);
+    } catch (error) {
+        errorBox.textContent = error.message;
+        errorBox.classList.remove("d-none");
+    } finally {
+        saveButton.disabled = false;
+    }
+});
+
+document.getElementById("save-bulk-add-tag-btn").addEventListener("click", async () => {
+    const checked = document.querySelector("#bulk-tag-tree .bulk-tag-radio:checked");
+    const errorBox = document.getElementById("bulk-add-tag-error");
+    const saveButton = document.getElementById("save-bulk-add-tag-btn");
+    errorBox.classList.add("d-none");
+    if (!checked) {
+        errorBox.textContent = "Choose a tag to add.";
+        errorBox.classList.remove("d-none");
+        return;
+    }
+    saveButton.disabled = true;
+    try {
+        await postBulkAction("bulk_add_tag", {
+            note_ids: Array.from(selectedNoteIds),
+            tag_id: Number(checked.value),
+        });
+        bootstrap.Modal.getInstance(document.getElementById("bulk-add-tag-modal")).hide();
+        await fetchAndRenderNotes(currentPage);
+    } catch (error) {
+        errorBox.textContent = error.message;
+        errorBox.classList.remove("d-none");
+    } finally {
+        saveButton.disabled = false;
+    }
+});
 
 function isSyncEnabled() {
     return localStorage.getItem("syncTranscriptEnabled") !== "false";
@@ -472,6 +795,11 @@ function getCurrentFilters() {
         time_to: document.getElementById("time-to-input").value,
         tags: Array.from(selectedFilterTagIds).join(","),
         subjects: Array.from(selectedFilterSubjects).join(","),
+        units: Array.from(selectedFilterUnits).join(","),
+        transcription_statuses: Array.from(selectedTranscriptionStatuses).join(","),
+        key_points_statuses: Array.from(selectedKeyPointsStatuses).join(","),
+        empty_notes: document.getElementById("empty-notes-filter").checked,
+        sort: document.getElementById("sort-select").value,
     };
 }
 
@@ -501,6 +829,11 @@ async function fetchAndRenderNotes(page = 1) {
     if (filters.time_to) params.set("time_to", filters.time_to);
     if (filters.tags) params.set("tags", filters.tags);
     if (filters.subjects) params.set("subjects", filters.subjects);
+    if (filters.units) params.set("units", filters.units);
+    if (filters.transcription_statuses) params.set("transcription_statuses", filters.transcription_statuses);
+    if (filters.key_points_statuses) params.set("key_points_statuses", filters.key_points_statuses);
+    if (filters.empty_notes) params.set("empty_notes", "1");
+    params.set("sort", filters.sort);
     params.set("page", String(page));
 
     const response = await fetch(`/api/notes?${params.toString()}`);
@@ -520,6 +853,7 @@ async function fetchAndRenderNotes(page = 1) {
     restorePlayback(playbackSnapshots);
     restoreOpenCollapses(openCollapseIds);
     restoreRichNotesEdits(richNotesEditSnapshots);
+    restoreNoteSelection();
     schedulePolling(data.has_active_transcription);
 }
 
@@ -530,24 +864,36 @@ document.getElementById("search-input").addEventListener("input", debouncedSearc
     document.getElementById(id).addEventListener("change", () => fetchAndRenderNotes(1));
 });
 
+document.getElementById("sort-select").addEventListener("change", () => fetchAndRenderNotes(1));
+
 document.getElementById("clear-filters-btn").addEventListener("click", () => {
     document.getElementById("search-input").value = "";
     document.getElementById("date-from-input").value = "";
     document.getElementById("date-to-input").value = "";
     document.getElementById("time-from-input").value = "";
     document.getElementById("time-to-input").value = "";
+    document.getElementById("sort-select").value = "date_desc";
     selectedFilterTagIds.clear();
     renderFilterTagTree();
     updateTagFilterCount();
     selectedFilterSubjects.clear();
+    selectedFilterUnits.clear();
     renderFilterSubjectList();
     updateSubjectFilterCount();
+    selectedTranscriptionStatuses.clear();
+    updateTranscriptionStatusFilterCount();
+    syncTranscriptionStatusCheckboxes();
+    selectedKeyPointsStatuses.clear();
+    updateKeyPointsStatusFilterCount();
+    syncKeyPointsStatusCheckboxes();
+    document.getElementById("empty-notes-filter").checked = false;
     fetchAndRenderNotes(1);
 });
 
 bindAudioSync();
 applyDynamicNoteStyles(document.getElementById("recordings-list"));
 renderMathFields(document.getElementById("recordings-list"));
+restoreNoteSelection();
 schedulePolling(document.body.dataset.hasActiveTranscription === "true");
 
 // --- Tag management ---
@@ -556,7 +902,48 @@ let allTags = [];
 let selectedFilterTagIds = new Set();
 let activeNoteTagsId = null;
 let allSubjects = [];
+let allUnits = [];
 let selectedFilterSubjects = new Set();
+let selectedFilterUnits = new Set();
+let selectedTranscriptionStatuses = new Set();
+let selectedKeyPointsStatuses = new Set();
+
+const DEFAULT_UNIT = "General";
+
+function buildUnitsBySubjectName() {
+    const map = {};
+    allSubjects.forEach((subject) => {
+        map[subject.name] = allUnits
+            .filter((unit) => unit.subject_id === subject.id)
+            .map((unit) => unit.name)
+            .sort((a, b) => a.localeCompare(b));
+    });
+    return map;
+}
+
+function updateTranscriptionStatusFilterCount() {
+    const badge = document.getElementById("transcription-status-filter-count");
+    badge.textContent = String(selectedTranscriptionStatuses.size);
+    badge.classList.toggle("d-none", selectedTranscriptionStatuses.size === 0);
+}
+
+function updateKeyPointsStatusFilterCount() {
+    const badge = document.getElementById("key-points-status-filter-count");
+    badge.textContent = String(selectedKeyPointsStatuses.size);
+    badge.classList.toggle("d-none", selectedKeyPointsStatuses.size === 0);
+}
+
+function syncTranscriptionStatusCheckboxes() {
+    document.querySelectorAll(".transcription-status-checkbox").forEach((checkbox) => {
+        checkbox.checked = selectedTranscriptionStatuses.has(checkbox.value);
+    });
+}
+
+function syncKeyPointsStatusCheckboxes() {
+    document.querySelectorAll(".key-points-status-checkbox").forEach((checkbox) => {
+        checkbox.checked = selectedKeyPointsStatuses.has(checkbox.value);
+    });
+}
 
 function buildTagTree(flatTags) {
     const byId = new Map(flatTags.map((tag) => [tag.id, { ...tag, children: [] }]));
@@ -669,45 +1056,101 @@ function renderSubjectRadios() {
 
 function renderFilterSubjectList() {
     const container = document.getElementById("filter-subject-list");
-    container.innerHTML = allSubjects.length
-        ? `<ul class="tag-tree">${allSubjects.map((subject) => `
+    if (!allSubjects.length) {
+        container.innerHTML = '<p class="text-muted small mb-0">No subjects yet.</p>';
+        return;
+    }
+    const unitsBySubjectName = buildUnitsBySubjectName();
+    container.innerHTML = `<ul class="tag-tree">${allSubjects.map((subject) => {
+        const units = [DEFAULT_UNIT, ...(unitsBySubjectName[subject.name] || [])]
+            .filter((name, index, arr) => arr.indexOf(name) === index);
+        const childrenHtml = units.map((unit) => {
+            const key = `${subject.name}::${unit}`;
+            return `
+            <li>
+                <label class="d-flex align-items-center gap-2">
+                    <input type="checkbox" class="filter-unit-checkbox" value="${escapeHtml(key)}"
+                        ${selectedFilterUnits.has(key) ? "checked" : ""}>
+                    ${escapeHtml(unit)}
+                </label>
+            </li>`;
+        }).join("");
+        return `
             <li>
                 <label class="d-flex align-items-center gap-2">
                     <input type="checkbox" class="filter-subject-checkbox" value="${escapeHtml(subject.name)}"
                         ${selectedFilterSubjects.has(subject.name) ? "checked" : ""}>
                     ${escapeHtml(subject.name)}
                 </label>
-            </li>
-        `).join("")}</ul>`
-        : '<p class="text-muted small mb-0">No subjects yet.</p>';
+                ${childrenHtml ? `<ul class="tag-children">${childrenHtml}</ul>` : ""}
+            </li>`;
+    }).join("")}</ul>`;
 }
 
 function updateSubjectFilterCount() {
     const badge = document.getElementById("subject-filter-count");
-    badge.textContent = String(selectedFilterSubjects.size);
-    badge.classList.toggle("d-none", selectedFilterSubjects.size === 0);
+    const count = selectedFilterSubjects.size + selectedFilterUnits.size;
+    badge.textContent = String(count);
+    badge.classList.toggle("d-none", count === 0);
 }
 
 function renderSubjectManageList() {
     const list = document.getElementById("subject-list-manage");
     list.innerHTML = allSubjects.length
-        ? allSubjects.map((subject) => `
-            <li class="list-group-item d-flex justify-content-between align-items-center">
-                ${escapeHtml(subject.name)}
-                <button type="button" class="btn btn-link btn-sm text-danger subject-delete-btn"
-                    data-subject-id="${subject.id}">Delete</button>
-            </li>
-        `).join("")
+        ? allSubjects.map((subject) => {
+            const units = allUnits
+                .filter((unit) => unit.subject_id === subject.id)
+                .sort((a, b) => a.name.localeCompare(b.name));
+            return `
+            <li class="list-group-item">
+                <div class="d-flex justify-content-between align-items-center gap-2">
+                    ${escapeHtml(subject.name)}
+                    <div class="d-flex gap-2 align-items-center">
+                        <button type="button" class="btn btn-link btn-sm p-0 toggle-subject-units-btn"
+                            data-subject-id="${subject.id}" aria-expanded="false">
+                            Units (${units.length})
+                        </button>
+                        <button type="button" class="btn btn-link btn-sm p-0 text-danger subject-delete-btn"
+                            data-subject-id="${subject.id}">Delete</button>
+                    </div>
+                </div>
+                <div class="subject-units-manage d-none mt-2" data-subject-id="${subject.id}">
+                    <ul class="list-unstyled subject-unit-list mb-2">
+                        ${units.length ? units.map((unit) => `
+                            <li class="d-flex justify-content-between align-items-center small">
+                                ${escapeHtml(unit.name)}
+                                <button type="button" class="btn btn-link btn-sm p-0 text-danger unit-delete-btn"
+                                    data-unit-id="${unit.id}">Delete</button>
+                            </li>`).join("") : '<li class="small text-muted">No units yet.</li>'}
+                    </ul>
+                    <div class="d-flex gap-2 align-items-end">
+                        <input type="text" class="form-control form-control-sm new-unit-name"
+                            data-subject-id="${subject.id}" placeholder="Unit name">
+                        <button type="button" class="btn btn-sm btn-primary add-unit-btn text-nowrap"
+                            data-subject-id="${subject.id}">Add</button>
+                    </div>
+                </div>
+            </li>`;
+        }).join("")
         : '<li class="list-group-item text-muted small">No subjects yet.</li>';
 }
 
 async function loadSubjects() {
-    const response = await fetch("/api/subjects");
-    if (!response.ok) {
+    const [subjectsResponse, unitsResponse] = await Promise.all([
+        fetch("/api/subjects"),
+        fetch("/api/units"),
+    ]);
+    if (!subjectsResponse.ok) {
         return;
     }
-    const data = await response.json();
-    allSubjects = data.subjects;
+    const subjectsData = await subjectsResponse.json();
+    allSubjects = subjectsData.subjects;
+    if (unitsResponse.ok) {
+        const unitsData = await unitsResponse.json();
+        allUnits = unitsData.units;
+    } else {
+        allUnits = [];
+    }
     renderSubjectRadios();
     renderSubjectManageList();
     renderFilterSubjectList();
@@ -716,6 +1159,9 @@ async function loadSubjects() {
 document.getElementById("manage-subjects-modal").addEventListener("click", async (event) => {
     const deleteBtn = event.target.closest(".subject-delete-btn");
     const addBtn = event.target.closest("#add-subject-btn");
+    const toggleUnitsBtn = event.target.closest(".toggle-subject-units-btn");
+    const addUnitBtn = event.target.closest(".add-unit-btn");
+    const unitDeleteBtn = event.target.closest(".unit-delete-btn");
     const errorBox = document.getElementById("subject-manage-error");
 
     if (deleteBtn) {
@@ -749,6 +1195,49 @@ document.getElementById("manage-subjects-modal").addEventListener("click", async
         }
         return;
     }
+
+    if (toggleUnitsBtn) {
+        const subjectId = toggleUnitsBtn.dataset.subjectId;
+        const panel = document.querySelector(`.subject-units-manage[data-subject-id="${subjectId}"]`);
+        if (panel) {
+            const expanded = panel.classList.toggle("d-none") === false;
+            toggleUnitsBtn.setAttribute("aria-expanded", String(expanded));
+        }
+        return;
+    }
+
+    if (addUnitBtn) {
+        const subjectId = addUnitBtn.dataset.subjectId;
+        const input = document.querySelector(`.new-unit-name[data-subject-id="${subjectId}"]`);
+        const name = input ? input.value.trim() : "";
+        errorBox.classList.add("d-none");
+        try {
+            const response = await fetch("/api/units", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ subject_id: Number(subjectId), name }),
+            });
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.error || "Could not create unit.");
+            }
+            await loadSubjects();
+        } catch (error) {
+            errorBox.textContent = error.message;
+            errorBox.classList.remove("d-none");
+        }
+        return;
+    }
+
+    if (unitDeleteBtn) {
+        const unitId = unitDeleteBtn.dataset.unitId;
+        if (!confirm("Delete this unit? Recordings assigned to it will keep the unit name.")) {
+            return;
+        }
+        await fetch(`/api/units/${unitId}/delete`, { method: "POST" });
+        await loadSubjects();
+        return;
+    }
 });
 
 async function loadTags() {
@@ -779,16 +1268,61 @@ document.getElementById("filter-tag-tree").addEventListener("change", (event) =>
 });
 
 document.getElementById("filter-subject-list").addEventListener("change", (event) => {
-    const checkbox = event.target.closest(".filter-subject-checkbox");
+    const subjectCheckbox = event.target.closest(".filter-subject-checkbox");
+    const unitCheckbox = event.target.closest(".filter-unit-checkbox");
+
+    if (subjectCheckbox) {
+        if (subjectCheckbox.checked) {
+            selectedFilterSubjects.add(subjectCheckbox.value);
+        } else {
+            selectedFilterSubjects.delete(subjectCheckbox.value);
+        }
+        updateSubjectFilterCount();
+        fetchAndRenderNotes(1);
+        return;
+    }
+
+    if (unitCheckbox) {
+        if (unitCheckbox.checked) {
+            selectedFilterUnits.add(unitCheckbox.value);
+        } else {
+            selectedFilterUnits.delete(unitCheckbox.value);
+        }
+        updateSubjectFilterCount();
+        fetchAndRenderNotes(1);
+        return;
+    }
+});
+
+document.getElementById("transcription-status-filter-list").addEventListener("change", (event) => {
+    const checkbox = event.target.closest(".transcription-status-checkbox");
     if (!checkbox) {
         return;
     }
     if (checkbox.checked) {
-        selectedFilterSubjects.add(checkbox.value);
+        selectedTranscriptionStatuses.add(checkbox.value);
     } else {
-        selectedFilterSubjects.delete(checkbox.value);
+        selectedTranscriptionStatuses.delete(checkbox.value);
     }
-    updateSubjectFilterCount();
+    updateTranscriptionStatusFilterCount();
+    fetchAndRenderNotes(1);
+});
+
+document.getElementById("key-points-status-filter-list").addEventListener("change", (event) => {
+    const checkbox = event.target.closest(".key-points-status-checkbox");
+    if (!checkbox) {
+        return;
+    }
+    if (checkbox.checked) {
+        selectedKeyPointsStatuses.add(checkbox.value);
+    } else {
+        selectedKeyPointsStatuses.delete(checkbox.value);
+    }
+    updateKeyPointsStatusFilterCount();
+    fetchAndRenderNotes(1);
+});
+
+document.getElementById("empty-notes-filter").addEventListener("change", () => {
     fetchAndRenderNotes(1);
 });
 

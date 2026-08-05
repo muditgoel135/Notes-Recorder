@@ -20,19 +20,19 @@ from contextlib import contextmanager
 import numpy as np
 import requests
 
-# Import extensions, models, note_images, text_filters, and video_embeds
-from extensions import app, db
-from models import Note, Speaker, SPEAKER_COLOR_PALETTE
-from note_images import collect_ollama_note_images
-from text_filters import rich_note_html_to_text
-from video_embeds import (
+# Import core extensions, models, and services
+from core.extensions import app, db
+from core.models import Note, Speaker, SPEAKER_COLOR_PALETTE
+from services.note_images import collect_ollama_note_images
+from services.text_filters import rich_note_html_to_text
+from services.video_embeds import (
     extract_video_embeds,
     format_video_transcripts,
     process_video_embeds,
 )
 
-# Import config.py constants
-from config import (
+# Import core.config constants
+from core.config import (
     BASE_DIR,
     WHISPER_MODEL_NAME,
     HUGGINGFACE_TOKEN,
@@ -289,6 +289,7 @@ def track_whisper_progress(note_id):
         """
         tqdm subclass that reports progress to the note while updating.
         """
+
         def update(self, n=1):
             """
             Intercept tqdm updates to persist whisper's progress percentage.
