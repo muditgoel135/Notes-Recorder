@@ -26,7 +26,12 @@ from core.config import (
 
 # Import services helpers
 from services.note_images import collect_ollama_note_images
-from services.text_filters import render_markdown, rich_note_html_to_text
+from services.text_filters import (
+    render_markdown,
+    rich_note_html_to_text,
+    format_display_date,
+    format_display_time,
+)
 from services.notes_query import build_notes_query, parse_notes_filters_from_request
 from services.video_embeds import collect_video_embed_images, format_video_transcripts
 
@@ -156,7 +161,7 @@ def transcript_context_for_note(note):
         f"Subject: {note.subject or 'Untitled'}",
         f"Unit: {note.unit or DEFAULT_UNIT}",
         f"Title: {note.title or 'No title'}",
-        f"Date/time: {note.date} {note.start_time or ''}-{note.end_time or ''}".strip(),
+        f"Date/time: {format_display_date(note.date) or ''} {format_display_time(note.start_time) or ''}-{format_display_time(note.end_time) or ''}".strip(),
     ]
 
     if note.tags:

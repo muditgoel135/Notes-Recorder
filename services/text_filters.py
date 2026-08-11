@@ -8,6 +8,7 @@ and markdown content, including HTML parsing and sanitization for notes.
 # Import required modules
 import json
 import re
+from datetime import datetime
 from html.parser import HTMLParser
 from urllib.parse import urlparse
 import markdown
@@ -455,6 +456,50 @@ def rich_note_html_to_text(html):
     parser = RichNoteTextParser()
     parser.feed(sanitize_rich_note_html(html) or "")
     return parser.get_text()
+
+
+def format_display_date(value):
+    """
+    Format a YYYY-MM-DD date string for display as DD/MM/YYYY.
+
+    :param value: A date string in YYYY-MM-DD format.
+    :type value: str or None
+    :return: The date in DD/MM/YYYY format, or the original value if invalid.
+    :rtype: str
+    """
+
+    if not value:
+        return value
+
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").strftime("%d/%m/%Y")
+
+    except (TypeError, ValueError):
+        return value
+
+
+def format_display_time(value):
+    """
+    Format an HH:MM[:SS] time string for display in 12-hour form.
+
+    :param value: A time string in HH:MM or HH:MM:SS format.
+    :type value: str or None
+    :return: The time as "h:mm AM/PM", or the original value if invalid.
+    :rtype: str
+    """
+
+    if not value:
+        return value
+
+    try:
+        hour, minute = (int(part) for part in str(value).split(":")[:2])
+
+    except (TypeError, ValueError):
+        return value
+
+    period = "AM" if hour < 12 else "PM"
+    hour12 = hour % 12 or 12
+    return f"{hour12}:{minute:02d} {period}"
 
 
 def parse_json(value):

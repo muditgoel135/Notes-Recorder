@@ -20,7 +20,11 @@ from core.config import BASE_DIR, DEFAULT_UNIT
 # Import audio and services helpers
 from audio.recordings import note_download_basename
 from audio.transcription import format_transcript_with_speakers
-from services.text_filters import rich_note_html_to_text
+from services.text_filters import (
+    rich_note_html_to_text,
+    format_display_date,
+    format_display_time,
+)
 
 
 def parse_bulk_note_ids(data):
@@ -233,8 +237,8 @@ def bulk_export_notes():
                         f"ID: {note.id}",
                         f"Subject: {note.subject or 'Untitled'}",
                         f"Title: {note.title or 'No title'}",
-                        f"Date: {note.date}",
-                        f"Time: {note.start_time} - {note.end_time}",
+                        f"Date: {format_display_date(note.date)}",
+                        f"Time: {format_display_time(note.start_time)} - {format_display_time(note.end_time)}",
                         "Tags: " + (", ".join(tag.name for tag in note.tags) or "None"),
                     ]
                 )

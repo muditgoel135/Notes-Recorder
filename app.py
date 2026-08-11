@@ -5,14 +5,27 @@ The main app to run the Flask server. It initializes the database, sets up Jinja
 """
 
 from core.extensions import app
-from services.text_filters import render_markdown, parse_json, render_rich_note_html
+from services.text_filters import (
+    render_markdown,
+    parse_json,
+    render_rich_note_html,
+    format_display_date,
+    format_display_time,
+)
+
 from services.notes_query import init_database
-from audio.transcription import enqueue_existing_transcriptions, enqueue_existing_key_points
+from audio.transcription import (
+    enqueue_existing_transcriptions,
+    enqueue_existing_key_points,
+)
+
 from core.config import TRANSCRIBE_EXISTING_ON_STARTUP
 
 app.jinja_env.filters["markdown"] = render_markdown
 app.jinja_env.filters["from_json"] = parse_json
 app.jinja_env.filters["rich_note"] = render_rich_note_html
+app.jinja_env.filters["display_date"] = format_display_date
+app.jinja_env.filters["display_time"] = format_display_time
 
 
 import routes  # noqa: F401  (registers @app.route views as a side effect)

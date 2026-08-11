@@ -104,9 +104,40 @@ function setChatMessageError(message = "") {
     errorBox.classList.toggle("d-none", !message);
 }
 
+function formatDisplayDate(value) {
+    if (!value) {
+        return value;
+    }
+    const parts = String(value).split("-");
+    if (parts.length !== 3) {
+        return value;
+    }
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
+function formatDisplayTime(value) {
+    if (!value) {
+        return value;
+    }
+    const parts = String(value).split(":");
+    if (parts.length < 2) {
+        return value;
+    }
+    let hour = Number.parseInt(parts[0], 10);
+    if (Number.isNaN(hour)) {
+        return value;
+    }
+    const period = hour < 12 ? "AM" : "PM";
+    hour = hour % 12;
+    if (hour === 0) {
+        hour = 12;
+    }
+    return `${hour}:${parts[1]} ${period}`;
+}
+
 function formatChatNoteLabel(note) {
     const name = note.title || note.subject || "Untitled";
-    const when = [note.date, note.start_time].filter(Boolean).join(" ");
+    const when = [formatDisplayDate(note.date), formatDisplayTime(note.start_time)].filter(Boolean).join(" ");
     return when ? `${name} (${when})` : name;
 }
 

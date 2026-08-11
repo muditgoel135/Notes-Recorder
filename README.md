@@ -12,15 +12,15 @@ A small Flask app for recording class notes from the browser microphone, transcr
 - Save recordings to the local `recordings/` folder.
 - Upload existing audio files; uploads are added under the `Uploaded` subject by default and can be edited afterwards.
 - Play saved recordings from the app.
-- Audio is denoised with ffmpeg before transcription to improve accuracy.
+- Audio is converted to 16 kHz mono with ffmpeg before transcription, then passed through the RNNoise denoiser (ffmpeg's `arnndn` filter with a vendored model) to suppress steady background noise such as fan or AC hum. The denoise pass is best-effort: a missing model file or a failed filter pass falls back to the plain converted audio. No FFT-style spectral filtering is applied — aggressive filters were found to destroy speech and cause hallucinated transcripts — and the original recording file is never modified.
 - Automatic background transcription using OpenAI Whisper (runs fully offline, once the model is downloaded), with a live progress bar showing percent complete.
 - Speaker diarization: automatically detects and labels distinct speakers ("Speaker 1", "Speaker 2", ...) in the transcript, shown as color-coded badges. Speakers can be renamed per note (e.g. "Teacher"). Requires a Hugging Face token; falls back to an undifferentiated transcript if not configured.
 - Automatic title and key-points extraction from the transcript using Ollama's hosted API (requires internet; waits and retries automatically if offline). When diarization is available, key points are generated from the speaker-labeled transcript.
-- Chat with selected transcript-ready recordings using Ollama's hosted API, with saved chat sessions, renameable chat titles, and message history stored in the app database.
+- Chat with selected transcript-ready recordings using Ollama's hosted API, with saved chat sessions, renameable chat titles, message history stored in the app database, markdown-rendered assistant replies, and recording context that includes metadata, tags, rich-note text, key points, transcripts, embedded-video transcripts, and available note/video images.
 - Inline editing of note title, key points, subject, date, and start time. Date/time edits preserve the original recording duration and recalculate the end time.
-- Rich notes can be captured while recording and edited later. The editor supports headings, bold/italic/underline, lists, links, text/highlight colors, tables, image uploads, and inline math.
+- Rich notes can be captured while recording and edited later. The editor supports headings, font size/family, bold/italic/underline/strikethrough, subscript/superscript, alignment, indentation, RTL blocks, ordered/bulleted/check lists, blockquotes, code blocks, links, text/highlight colors, tables, image uploads, video embeds, and inline math.
 - Rich-note images are stored locally and included as image context when Ollama generates key points or answers chats about selected recordings.
-- YouTube/Vimeo videos embedded in rich notes are automatically downloaded (yt-dlp) during key-points extraction: the video's audio is transcribed with Whisper and merged into the note's transcript, and keyframes are extracted with ffmpeg and sent to the model as image context.
+- YouTube/Vimeo videos embedded in rich notes are automatically downloaded (yt-dlp) during key-points extraction: the video's audio is transcribed with Whisper and merged into the note's transcript, and keyframes are extracted with ffmpeg and sent to the model as image context. Supported pasted inputs include YouTube watch/short/embed URLs, youtu.be links, Vimeo URLs, and iframe embed code.
 - Inline math editing: use the **Math** button in the rich editor to insert LaTeX, click an existing formula to edit it, and see rendered math preserved in saved notes and the transcript view.
 - Retry transcription or key-points extraction at any time, not just after a failure. Retrying transcription also re-runs key-points extraction on the new transcript.
 - Download a note's transcript (`.txt`) or key points (`.md`).
@@ -43,7 +43,7 @@ A small Flask app for recording class notes from the browser microphone, transcr
 - SQLite
 - Browser `MediaRecorder` API
 - Bootstrap
-- ffmpeg (audio denoising)
+- ffmpeg (audio conversion for Whisper)
 - OpenAI Whisper (speech-to-text)
 - pyannote.audio (speaker diarization)
 - Ollama API (title generation, key-points generation, and chat)
@@ -64,7 +64,12 @@ Notes-Recorder/
 |   `-- video_embeds.py # embedded YouTube/Vimeo download, transcription, and keyframes
 |-- audio/
 |   |-- recordings.py       # audio file storage helpers
-|   `-- transcription.py    # Whisper transcription, diarization, Ollama key points
+|   |-- audio_processing.py # audio prep, Whisper, diarization, progress tracking
+|   |-- key_points.py       # Ollama title/key-point generation and formatting
+|   `-- transcription.py    # transcription orchestration and job scheduling
+|-- models/
+|   `-- rnnoise/
+|       `-- std.rnnn        # pretrained RNNoise denoiser model used by the arnndn filter
 |-- routes/
 |   |-- __init__.py     # imports submodules to register Flask view functions
 |   |-- chat.py         # chat page, chat session management, Ollama chat
@@ -82,8 +87,13 @@ Notes-Recorder/
 |   |-- _transcript.html
 |   `-- _transcript_macros.html
 |-- static/
-|   |-- app.js          # recording, active rich notes, rich editor commands, image/math tools
-|   |-- notes-list.js   # notes list interactions, filters, tags, subjects, transcript sync
+|   |-- rich-editor.js  # rich editor commands, image/math/table tools, shared DOM helpers
+|   |-- recording.js    # recording sessions, chunk uploads, active rich notes, reload recovery
+|   |-- app.js          # entry point: DOM refs, status, global event listeners
+|   |-- notes-list.js         # notes list polling, filters, selection state, transcript sync
+|   |-- notes-list-actions.js # per-note edit/delete/pin/retry/download UI actions
+|   |-- notes-list-bulk.js    # bulk subject, tag, delete, and zip export actions
+|   |-- notes-list-tags.js    # tag/subject/unit management, filters, MathQuill modal setup
 |   |-- chat.js         # client-side JS for chat session and recording picker workflows
 |   |-- style.css
 |   `-- bootstrap-css/, bootstrap-js/, vendor/  # vendored Bootstrap, jQuery, and MathQuill assets
@@ -108,7 +118,7 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
-[ffmpeg](https://ffmpeg.org/download.html) must be installed and available on `PATH` — it's used both by Whisper to decode audio and to denoise recordings before transcription.
+[ffmpeg](https://ffmpeg.org/download.html) must be installed and available on `PATH` — it's used both by Whisper to decode audio and to convert recordings to 16 kHz mono before transcription.
 
 On Windows, install the **full-shared** build (which ships the DLLs that `pyannote.audio`/`torchcodec` need to decode audio). The regular (static) builds only ship `ffmpeg.exe`/`ffprobe.exe` and will trigger a warning like `torchcodec is not installed correctly so built-in audio decoding will fail`, leaving speaker diarization unable to load audio. The easiest way to get the shared build is:
 
@@ -122,13 +132,14 @@ Optional environment variables (e.g. in a `.env` file):
 
 - `SECRET_KEY` — Flask session secret.
 - `WHISPER_MODEL` — Whisper model size to load (default `small`).
+- `RNNOISE_MODEL` — path to the RNNoise model file used to denoise recordings before transcription (default `models/rnnoise/std.rnnn`). Point it at another `.rnn` file to swap the model, or set it to an empty value to disable denoising.
 - `OLLAMA_API_KEY` — API key for Ollama's hosted chat API. Required for title/key-points extraction and chatting with recordings; without it, transcription still works.
 - `KEY_POINTS_RETRY_SECONDS` — how often (in seconds) to retry key-points extraction while there is no internet connection (default `30`).
-- `VIDEO_KEYFRAME_COUNT` — how many keyframes per embedded video are extracted and sent to the model (default `6`). Keyframes are cached under `recordings/video_cache/`.
+- `VIDEO_KEYFRAME_COUNT` — how many keyframes per embedded video are extracted and sent to the model (default `6`). Keyframes are cached under `recordings/video_cache/`; the downloaded video/audio media is removed after processing.
 - `OLLAMA_MODEL` — Ollama model used for key-points extraction and chat (default `minimax-m3`). Must be a vision-capable model so images in rich notes are sent along; e.g. `minimax-m3` (1M context) or `gemma4:cloud`. Text-only models like `gpt-oss:20b` reject image input.
 - `TRANSCRIBE_EXISTING_ON_STARTUP` — set to `false` to skip re-queuing any pending transcriptions/key-points on startup (default `true`).
 - `DEFAULT_PER_PAGE` — number of notes shown per page in the notes list (default `10`).
-- The rich notes editor relies on vendored `jquery` and `MathQuill` assets in `static/vendor/`, so no extra npm install step is needed for math editing.
+- The rich notes editor relies on vendored `jquery` and `MathQuill` assets in `static/vendor/`, and the UI uses vendored Bootstrap assets in `static/bootstrap-css/` and `static/bootstrap-js/`, so no npm install step is needed.
 - Rich-note image uploads support `.png`, `.jpg`, `.jpeg`, `.gif`, and `.webp`. These images can be sent to Ollama as context for key-points extraction and chat.
 - `HUGGINGFACE_TOKEN` — Hugging Face access token used for speaker diarization (`pyannote.audio`). Without it, transcripts still work but aren't split by speaker. To set one up:
   1. Create a free account at [huggingface.co](https://huggingface.co) and generate a **read**-scope token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
@@ -162,14 +173,14 @@ http://127.0.0.1:5000/
 9. Use **Retry transcription** (next to **Show full transcript**) or **Retry key points** (next to **Show key points**) to redo either step at any time -- including after a failure, or just to regenerate with an updated model.
 10. Once transcription or key-points extraction complete, download them from the note's **Download transcript** / **Download key points** buttons.
 11. Click a word in the transcript to jump the audio to that point; the word being spoken is highlighted during playback.
-12. Use the rich notes toolbar to add formatting, links, tables, uploaded images, and LaTeX formulas. Existing formulas can be clicked to reopen them in the math editor.
+12. Use the rich notes toolbar to add formatting, links, checklists, blockquotes, code blocks, tables, uploaded images, video embeds, and LaTeX formulas. Existing formulas can be clicked to reopen them in the math editor.
 13. When diarization is configured, each speaker turn shows a colored badge (e.g. "Speaker 1"); click a badge to rename that speaker for the note (e.g. "Teacher").
 14. Assign hierarchical tags to a note and filter the notes list by tag. Use **Manage Tags** to create, edit (name/color), delete, or nest tags as subtags. Deleting a tag also deletes its subtags.
 15. Use **Manage Subjects** to add or delete subjects, and to create or delete **units** (sub-categories like chapters) within a subject.
 16. Filter the notes list by subject/unit, transcription status, key-points status, or "empty notes" using the dropdowns above the list, and reorder results with the **Sort by** dropdown (pinned recordings always come first).
 17. Pin a recording to the top of the list with the pin button on its card, and unpin it the same way.
 18. Select several recordings with their checkboxes — **This page** selects the current page and **Select all results** selects every note matching the current filters — then use the toolbar to **Change subject**, **Add tag**, **Export** (download a zip), **Clear**, or **Delete** them in bulk.
-19. Click **Chat with Recordings** to start or reopen saved chats. The recording picker uses the current search/date/time/tag/subject filters and only includes recordings with completed transcripts.
+19. Click **Chat with Recordings** to start or reopen saved chats. The recording picker uses search, date, time, tag, and subject filters, returns up to 100 transcript-ready recordings, and only includes recordings with completed transcripts.
 20. Select one or more recordings, click **Start chat** or send a first message to create the chat, then use **Rename** to update the saved chat title if needed.
 21. Click **Delete** on a note to remove it, along with its saved recording file.
 
@@ -183,6 +194,7 @@ Use the search box and date/time filters above the notes list to find recordings
 - The app records from the browser microphone, not the server machine's microphone.
 - While recording, the app warns before page unloads. If the page is refreshed anyway, it attempts to restore the active session from browser `localStorage` and continue uploading chunks after microphone access is allowed again.
 - Rich notes entered during an active recording are saved to the active session and recovered with the recording after reloads.
+- Browser recording chunks are uploaded about every 2 seconds. If stopping the recorder fails because a chunk upload is still pending or failed, the local active-session record is kept so reload recovery can still finish the recording.
 - WebM recordings are patched with duration metadata when possible so saved browser recordings report a useful playback length.
 - Saved recording files are ignored by Git through `recordings/` in `.gitignore`.
 - The app creates or updates its SQLite tables on startup, and seeds a default subject list (Math, Physics, Chemistry, Biology, English, Hindi, Individuals and Societies) the first time it runs with no subjects yet. Manage or replace these afterwards via **Manage Subjects**. Deleting a subject removes it from the picker; existing notes keep their stored subject text.
@@ -192,8 +204,11 @@ Use the search box and date/time filters above the notes list to find recordings
 - The app can be used fully offline for recording and transcription. Key-points extraction needs internet access to reach Ollama; while offline it shows as "Extracting key points..." and retries automatically until a connection is available.
 - Chatting with recordings also requires internet access and `OLLAMA_API_KEY`; if a request fails, the user's message remains saved in the chat history. Any images embedded in the selected rich notes are attached to the Ollama context.
 - Embedded video transcription requires internet access (for yt-dlp downloads) and `yt-dlp` installed via `pip install -r requirements.txt`. Downloaded videos are stored temporarily in `recordings/video_cache/`; only the extracted keyframes and transcripts are kept afterwards. Video audio is transcribed with the same local Whisper model used for recordings.
+- Embedded video keyframes are scene-detected first, then fall back to evenly spaced frames for static or low-motion videos. Chat uses cached keyframes only; it does not download new videos during chat requests.
 - Speaker diarization requires internet access (and a valid `HUGGINGFACE_TOKEN`) the first time it downloads the diarization model; after that it runs locally like Whisper. If diarization fails or isn't configured, transcription still completes normally, just without speaker labels.
 - Generated markdown is normalized before rendering so common LLM list-indentation mistakes are shown as lists instead of code blocks.
 - Key-points extraction tolerates minor JSON formatting mistakes in Ollama's response (e.g. stray backslashes) by attempting to repair and re-parse them before failing.
 - Inline math in rich notes is stored as sanitized HTML with a `data-latex` payload so the app can round-trip, render, and edit formulas safely.
+- Rich-note video embeds are sanitized to HTTPS YouTube/YouTube-nocookie and Vimeo player embeds before rendering or processing.
 - Rich-note HTML is sanitized with Bleach before rendering or converting to text for Ollama prompts; local rich-note image paths are validated before the image data is read.
+- The vendored `models/rnnoise/std.rnnn` is the standard pretrained RNNoise denoiser model (Xiph.org, BSD-3-Clause), the one bundled with the reference RNNoise implementation. It is applied with ffmpeg's `arnndn` filter to denoise recordings before transcription.

@@ -29,6 +29,13 @@ TRANSCRIBE_EXISTING_ON_STARTUP = (
     os.environ.get("TRANSCRIBE_EXISTING_ON_STARTUP", "true").lower() != "false"
 )
 
+# RNNoise model used to denoise recordings before transcription (removes
+# steady background noise such as fan or AC hum). Point this at another .rnn
+# file to swap the model, or set it to an empty value to disable denoising.
+RNNOISE_MODEL = os.environ.get(
+    "RNNOISE_MODEL", os.path.join(BASE_DIR, "models", "rnnoise", "std.rnnn")
+)
+
 KEY_POINTS_PENDING = "pending"
 KEY_POINTS_PROCESSING = "processing"
 KEY_POINTS_COMPLETED = "completed"
