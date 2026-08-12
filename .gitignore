@@ -221,6 +221,3 @@ __marimo__/
 
 # Output of the recorder tool
 recordings/
-
-# Tests
-tests/

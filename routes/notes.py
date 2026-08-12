@@ -52,6 +52,7 @@ from audio.transcription import (
     extract_key_points,
     transcription_executor,
 )
+from audio.key_points import reset_key_points_offline_retries
 
 
 def units_by_subject_map():
@@ -269,7 +270,14 @@ def set_note_tags(note_id):
 
     note = Note.query.get_or_404(note_id)
     data = request.get_json(silent=True) or {}
-    tag_ids = [int(tag_id) for tag_id in (data.get("tag_ids") or [])]
+    raw_tag_ids = data.get("tag_ids") or []
+    if not isinstance(raw_tag_ids, list) or not all(
+        isinstance(tag_id, int) or (isinstance(tag_id, str) and tag_id.strip().isdigit())
+        for tag_id in raw_tag_ids
+    ):
+        return jsonify({"error": "Invalid tag ids."}), 400
+
+    tag_ids = [int(tag_id) for tag_id in raw_tag_ids]
     note.tags = Tag.query.filter(Tag.id.in_(tag_ids)).all() if tag_ids else []
     db.session.commit()
     return jsonify({"tags": [tag.to_dict() for tag in note.tags]})
@@ -454,6 +462,7 @@ def retry_transcription(note_id):
     note.key_points_status = KEY_POINTS_PENDING
     note.key_points_error = None
     db.session.commit()
+    reset_key_points_offline_retries(note.id)
     enqueue_transcription(note.id, audio_path)
     return jsonify({"message": "Retrying transcription."})
 
@@ -476,6 +485,7 @@ def retry_key_points(note_id):
     note.key_points_status = KEY_POINTS_PENDING
     note.key_points_error = None
     db.session.commit()
+    reset_key_points_offline_retries(note.id)
     transcription_executor.submit(
         extract_key_points,
         note.id,
@@ -502,6 +512,7 @@ def update_note_rich_notes(note_id):
     note.notes_html = sanitize_rich_note_html(data.get("notes_html"))
     note.key_points_generation = (note.key_points_generation or 0) + 1
     note.key_points_error = None
+    reset_key_points_offline_retries(note.id)
 
     should_regenerate = (
         note.transcription_status == TRANSCRIPTION_COMPLETED and note.transcription

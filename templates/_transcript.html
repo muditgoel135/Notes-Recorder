@@ -1,5 +1,6 @@
 {% import "_transcript_macros.html" as transcript %}
 {% set words = note.transcription_segments | from_json %}
+{{ transcript.render_bookmarks(note) }}
 {% if note.transcription and note.transcription | length > 500 %}
 <div class="collapse" id="transcript-{{ note.id }}">
     {{ transcript.render_words(note, words) }}

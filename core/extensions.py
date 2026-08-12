@@ -14,5 +14,6 @@ from core.config import SECRET_KEY
 app = Flask("Notes Recorder")
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///database.db"
 app.config["SECRET_KEY"] = SECRET_KEY
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
 db = SQLAlchemy(app)

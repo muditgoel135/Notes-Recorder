@@ -7,9 +7,14 @@ let nextChunkIndex = 0;
 let pendingChunkUploads = [];
 let isStoppingRecording = false;
 let hasChunkUploadError = false;
+let isRecordingPaused = false;
+let pauseRequested = false;
+let pausedSinceMs = 0;
+let bookmarkSaveTimer = null;
 
 const ACTIVE_RECORDING_STORAGE_KEY = "activeRecordingSession";
 const RECORDING_CHUNK_INTERVAL_MS = 2000;
+const BOOKMARK_SAVE_DEBOUNCE_MS = 500;
 
 // --- Recording controls / session helpers ---
 
@@ -110,6 +115,17 @@ function clearActiveRecordingSession() {
     setActiveNotesVisible(false);
     setActiveNotesHtml("");
     activeNotesSaveStatus.textContent = "";
+    isRecordingPaused = false;
+    pauseRequested = false;
+    pausedSinceMs = 0;
+    if (bookmarkSaveTimer) {
+        clearTimeout(bookmarkSaveTimer);
+        bookmarkSaveTimer = null;
+    }
+    if (recordingBookmarksBox) {
+        recordingBookmarksBox.classList.add("d-none");
+        recordingBookmarksBox.innerHTML = "";
+    }
 }
 
 function loadActiveRecordingSession() {
@@ -129,12 +145,158 @@ function setRecordingControls(isRecording) {
     startButton.disabled = isRecording;
     stopButton.disabled = !isRecording;
     cancelButton.disabled = !isRecording;
+    pauseButton.disabled = !isRecording;
+    markButton.disabled = !isRecording;
+    if (!isRecording) {
+        isRecordingPaused = false;
+        pauseRequested = false;
+        pausedSinceMs = 0;
+        updatePauseButtonUI();
+    }
+}
+
+function updatePauseButtonUI() {
+    pauseButton.textContent = isRecordingPaused ? "Resume" : "Pause";
+    pauseButton.classList.toggle("btn-warning", !isRecordingPaused);
+    pauseButton.classList.toggle("btn-success", isRecordingPaused);
+}
+
+function getSessionStartBaseMs() {
+    if (activeRecordingSession && activeRecordingSession.startBaseMs) {
+        return activeRecordingSession.startBaseMs;
+    }
+    return recordingStartTime ? recordingStartTime.getTime() : Date.now();
+}
+
+function getRecordedElapsedMs() {
+    const baseMs = getSessionStartBaseMs();
+    let elapsed = Date.now() - baseMs;
+    const pausedTotalMs = (activeRecordingSession && activeRecordingSession.pausedTotalMs) || 0;
+    if (pausedSinceMs > 0) {
+        elapsed -= Date.now() - pausedSinceMs;
+    }
+    elapsed -= pausedTotalMs;
+    return Math.max(0, elapsed);
+}
+
+function formatBookmarkTime(seconds) {
+    const totalSeconds = Math.max(0, Math.round(seconds));
+    const minutes = Math.floor(totalSeconds / 60);
+    const remainingSeconds = totalSeconds % 60;
+    return `${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`;
+}
+
+function getActiveSessionBookmarks() {
+    if (!activeRecordingSession) {
+        return [];
+    }
+    if (!Array.isArray(activeRecordingSession.bookmarks)) {
+        activeRecordingSession.bookmarks = [];
+    }
+    return activeRecordingSession.bookmarks;
+}
+
+function renderActiveRecordingBookmarks() {
+    if (!recordingBookmarksBox) {
+        return;
+    }
+    const bookmarks = getActiveSessionBookmarks();
+    if (!bookmarks.length) {
+        recordingBookmarksBox.classList.add("d-none");
+        recordingBookmarksBox.innerHTML = "";
+        return;
+    }
+    recordingBookmarksBox.classList.remove("d-none");
+    recordingBookmarksBox.innerHTML =
+        '<span class="small text-muted me-1">Bookmarks:</span>' +
+        bookmarks
+            .map(
+                (bookmark) =>
+                    `<span class="bookmark-chip recording-bookmark-chip">${formatBookmarkTime(bookmark.t)}</span>`
+            )
+            .join("");
+}
+
+function addBookmark() {
+    if (!activeRecordingSession || !mediaRecorder || mediaRecorder.state !== "recording") {
+        return;
+    }
+    const bookmarks = getActiveSessionBookmarks();
+    const timeSeconds = getRecordedElapsedMs() / 1000;
+    bookmarks.push({ t: timeSeconds });
+    bookmarks.sort((a, b) => a.t - b.t);
+    saveActiveRecordingSession();
+    renderActiveRecordingBookmarks();
+    setStatus(`Recording... Bookmark ${bookmarks.length} dropped at ${formatBookmarkTime(timeSeconds)}.`);
+    scheduleBookmarkSave();
+}
+
+function scheduleBookmarkSave() {
+    if (bookmarkSaveTimer) {
+        clearTimeout(bookmarkSaveTimer);
+    }
+    bookmarkSaveTimer = setTimeout(() => {
+        bookmarkSaveTimer = null;
+        saveBookmarksToServerNow().catch(() => { });
+    }, BOOKMARK_SAVE_DEBOUNCE_MS);
+}
+
+async function saveBookmarksToServerNow() {
+    if (!activeRecordingSession) {
+        return;
+    }
+    const response = await fetch(`/api/recording_sessions/${getActiveSessionKey()}/bookmarks`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookmarks: getActiveSessionBookmarks() }),
+    });
+    if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "Could not save bookmarks.");
+    }
 }
 
 function stopMediaStream() {
     if (mediaStream) {
         mediaStream.getTracks().forEach((track) => track.stop());
         mediaStream = null;
+    }
+}
+
+function pauseRecording() {
+    if (!mediaRecorder || mediaRecorder.state !== "recording" || pauseRequested || isStoppingRecording) {
+        return;
+    }
+    // Flush the current buffer so the partial chunk closes out the current
+    // segment; the dataavailable handler then starts a fresh segment (like
+    // a reload recovery does) and pauses the recorder. This keeps the
+    // resumed audio in its own WebM segment that ffmpeg can concatenate.
+    pauseRequested = true;
+    setStatus("Pausing...");
+    mediaRecorder.requestData();
+}
+
+function resumeRecording() {
+    if (!mediaRecorder || mediaRecorder.state !== "paused" || isStoppingRecording) {
+        return;
+    }
+    if (pausedSinceMs > 0 && activeRecordingSession) {
+        activeRecordingSession.pausedTotalMs =
+            (activeRecordingSession.pausedTotalMs || 0) + (Date.now() - pausedSinceMs);
+        saveActiveRecordingSession();
+    }
+    pausedSinceMs = 0;
+    isRecordingPaused = false;
+    mediaRecorder.resume();
+    updatePauseButtonUI();
+    setStatus("Recording...");
+}
+
+function togglePauseRecording() {
+    if (isRecordingPaused) {
+        resumeRecording();
+    } else {
+        pauseRecording();
     }
 }
 
@@ -168,6 +330,9 @@ async function createRecordingSession(mimeType, extension) {
         mimeType: data.session.mime_type || mimeType,
         extension: data.session.extension || extension,
         notesHtml: data.session.notes_html || "",
+        bookmarks: data.session.bookmarks_json ? JSON.parse(data.session.bookmarks_json) : [],
+        startBaseMs: recordingStartTime.getTime(),
+        pausedTotalMs: 0,
         nextSegmentIndex: 0,
     };
 }
@@ -219,10 +384,19 @@ async function waitForPendingChunkUploads() {
 
 async function finishRecordingSession() {
     await saveActiveRecordingNotesNow();
+    await saveBookmarksToServerNow();
+    const body = { end_time: getTimeString(new Date()) };
+    // Wall-clock start/end includes paused stretches; the assembled media
+    // only contains recorded (non-paused) audio, so report the true recorded
+    // duration so the webm duration metadata stays accurate.
+    const recordedSeconds = getRecordedElapsedMs() / 1000;
+    if (recordedSeconds > 0) {
+        body.recording_duration = Math.round(recordedSeconds);
+    }
     const response = await fetch(`/api/recording_sessions/${getActiveSessionKey()}/finish`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ end_time: getTimeString(new Date()) }),
+        body: JSON.stringify(body),
     });
 
     if (!response.ok) {
@@ -256,12 +430,27 @@ async function startRecorderForActiveSession(isRecovered = false) {
     pendingChunkUploads = [];
     hasChunkUploadError = false;
     isStoppingRecording = false;
+    isRecordingPaused = false;
+    pauseRequested = false;
+    pausedSinceMs = 0;
     activeRecordingSession.nextSegmentIndex = currentSegmentIndex + 1;
     saveActiveRecordingSession();
 
     mediaRecorder.addEventListener("dataavailable", (event) => {
         if (event.data.size > 0 && activeRecordingSession) {
             queueChunkUpload(event.data);
+        }
+        if (pauseRequested && mediaRecorder && mediaRecorder.state === "recording") {
+            pauseRequested = false;
+            pausedSinceMs = Date.now();
+            currentSegmentIndex += 1;
+            nextChunkIndex = 0;
+            activeRecordingSession.nextSegmentIndex = currentSegmentIndex + 1;
+            saveActiveRecordingSession();
+            isRecordingPaused = true;
+            mediaRecorder.pause();
+            updatePauseButtonUI();
+            setStatus("Paused. Click Resume to continue.");
         }
     });
 
@@ -289,8 +478,10 @@ async function startRecorderForActiveSession(isRecovered = false) {
 
     mediaRecorder.start(RECORDING_CHUNK_INTERVAL_MS);
     setRecordingControls(true);
+    updatePauseButtonUI();
     setActiveNotesHtml(activeRecordingSession.notesHtml || "");
     setActiveNotesVisible(true);
+    renderActiveRecordingBookmarks();
     setStatus(isRecovered ? "Recording resumed after reload..." : "Recording...");
 }
 
@@ -336,10 +527,27 @@ async function restoreActiveRecordingIfNeeded() {
             return;
         }
 
+        const serverBookmarks = data.session.bookmarks_json
+            ? JSON.parse(data.session.bookmarks_json)
+            : [];
+        const localBookmarks = Array.isArray(storedSession.bookmarks) ? storedSession.bookmarks : [];
+        const mergedBookmarks = [];
+        const seenTimes = new Set();
+        // Prefer the newest bookmark list; dedupe by timestamp.
+        [...localBookmarks, ...serverBookmarks].forEach((bookmark) => {
+            if (bookmark && typeof bookmark.t === "number" && !seenTimes.has(bookmark.t)) {
+                seenTimes.add(bookmark.t);
+                mergedBookmarks.push(bookmark);
+            }
+        });
+        mergedBookmarks.sort((a, b) => a.t - b.t);
+
         activeRecordingSession = {
             ...storedSession,
             notesHtml: data.session.notes_html || storedSession.notesHtml || "",
+            bookmarks: mergedBookmarks,
         };
+        recordingStartTime = new Date(activeRecordingSession.startBaseMs || Date.now());
         startForm.querySelectorAll("input[name='subject']").forEach((input) => {
             input.checked = input.value === storedSession.subject;
         });

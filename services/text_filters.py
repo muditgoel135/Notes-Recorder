@@ -57,6 +57,37 @@ ALLOWED_RICH_NOTE_TAGS = [
     "u",
     "ul",
 ]
+ALLOWED_MARKDOWN_TAGS = [
+    "a",
+    "blockquote",
+    "br",
+    "code",
+    "em",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "hr",
+    "img",
+    "li",
+    "ol",
+    "p",
+    "pre",
+    "strong",
+    "table",
+    "tbody",
+    "td",
+    "th",
+    "thead",
+    "tr",
+    "ul",
+]
+ALLOWED_MARKDOWN_ATTRIBUTES = {
+    "a": ["href", "title"],
+    "img": ["src", "alt", "title"],
+}
 
 ALLOWED_RICH_NOTE_ATTRIBUTES = {
     "*": ["style", "class", "dir"],
@@ -261,8 +292,9 @@ def render_markdown(text):
     """
     Render markdown text to safe HTML.
 
-    Normalizes list indentation before rendering and returns the result as a
-    Markup object.
+    Normalizes list indentation before rendering, then sanitizes the produced
+    HTML with bleach so only a safe subset of tags and attributes survives.
+    Returns the result as a Markup object.
 
     :param text: The markdown text to render.
     :type text: str
@@ -273,12 +305,22 @@ def render_markdown(text):
     if not text:
         return ""
 
-    return Markup(
-        markdown.markdown(
-            normalize_list_indentation(text),
-            extensions=["sane_lists", "tables"],
-        )
+    rendered = markdown.markdown(
+        normalize_list_indentation(text),
+        extensions=["sane_lists", "tables"],
     )
+
+    if bleach is None:
+        return Markup(escape(rendered))
+
+    cleaned = bleach.clean(
+        rendered,
+        tags=ALLOWED_MARKDOWN_TAGS,
+        attributes=ALLOWED_MARKDOWN_ATTRIBUTES,
+        protocols={"http", "https", "mailto"},
+        strip=True,
+    )
+    return Markup(cleaned)
 
 
 def sanitize_rich_note_html(html):

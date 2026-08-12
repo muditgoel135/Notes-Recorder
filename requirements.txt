@@ -22,6 +22,7 @@ numba==0.66.0
 numpy==2.4.6
 openai-whisper==20250625
 pyannote.audio==4.0.7
+pytest==8.3.5
 python-dotenv==1.2.2
 regex==2026.6.28
 requests==2.34.2

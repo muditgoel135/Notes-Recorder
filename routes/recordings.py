@@ -6,6 +6,7 @@ routes for the Notes-Recorder application.
 """
 
 # Import required modules
+import json
 from flask import request, jsonify, redirect, url_for, send_from_directory
 
 # Import core extensions and config
@@ -153,6 +154,46 @@ def save_recording_chunk_route(session_key):
     return jsonify({"message": "Chunk saved.", "chunk_count": session.chunk_count})
 
 
+@app.route("/api/recording_sessions/<session_key>/bookmarks", methods=["PATCH"])
+def update_recording_session_bookmarks(session_key):
+    """
+    Update the timestamp bookmarks of an active recording session.
+
+    :param session_key: The session key string.
+    :type session_key: str
+    :return: A JSON response with the saved bookmarks, or an error.
+    :rtype: flask.Response
+    """
+
+    session = get_session_by_key(session_key)
+    if not session:
+        return jsonify({"error": "Recording session was not found."}), 404
+
+    if session.status != ACTIVE_RECORDING_STATUS:
+        return jsonify({"error": "Recording session is not active."}), 400
+
+    data = request.get_json(silent=True) or {}
+    bookmarks = data.get("bookmarks") or []
+    if not isinstance(bookmarks, list):
+        return jsonify({"error": "Bookmarks must be a list."}), 400
+
+    cleaned = []
+    for bookmark in bookmarks[:500]:
+        if not isinstance(bookmark, dict):
+            continue
+        try:
+            time = float(bookmark.get("t"))
+        except (TypeError, ValueError):
+            continue
+        if time < 0:
+            continue
+        cleaned.append({"t": round(time, 3)})
+
+    session.bookmarks_json = json.dumps(cleaned)
+    db.session.commit()
+    return jsonify({"bookmarks": cleaned})
+
+
 @app.route("/api/recording_sessions/<session_key>/finish", methods=["POST"])
 def finish_recording_session_route(session_key):
     """
@@ -170,8 +211,15 @@ def finish_recording_session_route(session_key):
 
     data = request.get_json(silent=True) or {}
     end_time = (data.get("end_time") or "").strip() or None
+    recording_duration = data.get("recording_duration")
     try:
-        note = finish_recording_session(session, end_time)
+        note = finish_recording_session(
+            session,
+            end_time,
+            recording_duration=(
+                int(recording_duration) if recording_duration else None
+            ),
+        )
 
     except ValueError as error:
         return jsonify({"error": str(error)}), 400

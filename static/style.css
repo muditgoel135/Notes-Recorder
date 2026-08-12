@@ -271,6 +271,33 @@ body.sync-enabled .transcript-word:hover {
     text-decoration: underline;
 }
 
+.transcript-bookmarks {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem;
+    margin-bottom: 0.5rem;
+}
+
+.bookmark-chip {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border: 1px solid #ffc107;
+    border-radius: 0.75rem;
+    background: #fff8e1;
+    color: #664d03;
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
+.bookmark-chip:hover {
+    background: #ffecb3;
+}
+
+.recording-bookmark-chip {
+    cursor: default;
+}
+
 .markdown-content {
     margin-bottom: 0;
 }

@@ -2,11 +2,14 @@ const startForm = document.getElementById("start-recording-form");
 const stopForm = document.getElementById("stop-recording-form");
 const startButton = document.getElementById("start-button");
 const stopButton = document.getElementById("stop-button");
+const pauseButton = document.getElementById("pause-button");
+const markButton = document.getElementById("mark-button");
 const cancelButton = document.getElementById("cancel-button");
 const statusBox = document.getElementById("recording-status");
 const activeNotesPanel = document.getElementById("active-notes-panel");
 const activeNotesSaveStatus = document.getElementById("active-notes-save-status");
 const activeNotesEditor = document.getElementById("active-recording-notes-editor");
+const recordingBookmarksBox = document.getElementById("recording-bookmarks");
 
 function setStatus(message, isError = false) {
     statusBox.textContent = message;
@@ -20,16 +23,41 @@ startForm.addEventListener("submit", async (event) => {
 
 stopForm.addEventListener("submit", (event) => {
     event.preventDefault();
-    if (mediaRecorder && mediaRecorder.state === "recording") {
+    if (mediaRecorder && (mediaRecorder.state === "recording" || mediaRecorder.state === "paused")) {
         isStoppingRecording = true;
         setRecordingControls(true);
         stopButton.disabled = true;
         setStatus("Stopping recording...");
+        if (mediaRecorder.state === "paused") {
+            mediaRecorder.resume();
+        }
         mediaRecorder.requestData();
         mediaRecorder.stop();
     } else if (activeRecordingSession) {
         stopButton.disabled = true;
         finishRecoveredSessionWithoutRecorder();
+    }
+});
+
+pauseButton.addEventListener("click", () => {
+    togglePauseRecording();
+});
+
+markButton.addEventListener("click", () => {
+    addBookmark();
+});
+
+document.addEventListener("keydown", (event) => {
+    if (event.key.toLowerCase() !== "m" || event.ctrlKey || event.metaKey || event.altKey) {
+        return;
+    }
+    const target = event.target;
+    if (target && (target.isContentEditable || target.closest("input, textarea, select"))) {
+        return;
+    }
+    if (mediaRecorder && mediaRecorder.state === "recording" && activeRecordingSession) {
+        event.preventDefault();
+        addBookmark();
     }
 });
 
@@ -55,6 +83,12 @@ cancelButton.addEventListener("click", async () => {
 
 window.addEventListener("beforeunload", (event) => {
     if (activeRecordingSession) {
+        if (pausedSinceMs > 0) {
+            activeRecordingSession.pausedTotalMs =
+                (activeRecordingSession.pausedTotalMs || 0) + (Date.now() - pausedSinceMs);
+            pausedSinceMs = 0;
+            saveActiveRecordingSession();
+        }
         event.preventDefault();
         event.returnValue = "";
     }

@@ -62,11 +62,19 @@
                             <button type="submit" id="stop-button" class="btn btn-danger" disabled>
                                 Stop Recording
                             </button>
+                            <button type="button" id="pause-button" class="btn btn-warning" disabled>
+                                Pause
+                            </button>
+                            <button type="button" id="mark-button" class="btn btn-outline-warning" disabled
+                                title="Drop a timestamp bookmark (press M while recording)">
+                                Mark
+                            </button>
                             <button type="button" id="cancel-button" class="btn btn-outline-secondary" disabled>
                                 Cancel
                             </button>
                         </form>
                         <div id="recording-status" class="mt-2"></div>
+                        <div id="recording-bookmarks" class="mt-2 d-none"></div>
                     </div>
                 </div>
 

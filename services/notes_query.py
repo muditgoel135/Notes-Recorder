@@ -101,8 +101,6 @@ def init_database():
         db.session.commit()
 
     inspector = inspect(db.engine)
-    if "note" not in inspector.get_table_names():
-        return
 
     existing_columns = {column["name"] for column in inspector.get_columns("note")}
     required_columns = {
@@ -120,6 +118,7 @@ def init_database():
         "transcription_progress": "INTEGER DEFAULT 0",
         "transcription_stage": "VARCHAR(20)",
         "transcription_error": "TEXT",
+        "bookmarks_json": "TEXT",
         "video_transcriptions": "TEXT",
         "title": "VARCHAR(200)",
         "key_points": "TEXT",
@@ -150,15 +149,29 @@ def init_database():
         session_columns = {
             column["name"] for column in inspector.get_columns("recording_session")
         }
+        required_session_columns = {
+            "session_key": "VARCHAR(32) NOT NULL DEFAULT ''",
+            "subject": "VARCHAR(100)",
+            "unit": "VARCHAR(100)",
+            "start_time": "VARCHAR(8) NOT NULL DEFAULT ''",
+            "end_time": "VARCHAR(8)",
+            "status": "VARCHAR(20) NOT NULL DEFAULT 'active'",
+            "mime_type": "VARCHAR(100)",
+            "extension": "VARCHAR(10) NOT NULL DEFAULT 'webm'",
+            "chunk_count": "INTEGER NOT NULL DEFAULT 0",
+            "segments_json": "TEXT",
+            "notes_html": "TEXT",
+            "bookmarks_json": "TEXT",
+            "note_id": "INTEGER",
+        }
         with db.engine.begin() as connection:
-            if "notes_html" not in session_columns:
-                connection.execute(
-                    text("ALTER TABLE recording_session ADD COLUMN notes_html TEXT")
-                )
-            if "unit" not in session_columns:
-                connection.execute(
-                    text("ALTER TABLE recording_session ADD COLUMN unit VARCHAR(100)")
-                )
+            for column_name, column_definition in required_session_columns.items():
+                if column_name not in session_columns:
+                    connection.execute(
+                        text(
+                            f"ALTER TABLE recording_session ADD COLUMN {column_name} {column_definition}"
+                        )
+                    )
             connection.execute(
                 text(
                     "UPDATE recording_session SET unit = :default_unit "

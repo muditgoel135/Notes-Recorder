@@ -11,6 +11,7 @@ import os
 import shutil
 import struct
 import subprocess
+import threading
 import uuid
 from werkzeug.utils import secure_filename
 
@@ -37,6 +38,21 @@ WEBM_INFO_ID = bytes.fromhex("1549a966")
 WEBM_SEGMENT_ID = bytes.fromhex("18538067")
 WEBM_TRACKS_ID = bytes.fromhex("1654ae6b")
 WEBM_DURATION_ID = bytes.fromhex("4489")
+
+_session_locks = {}
+_session_locks_guard = threading.Lock()
+
+
+def _session_lock(session_key):
+    """
+    Return the lock serializing chunk saves for a recording session.
+
+    Locks live for the app process; each recording session gets one entry, so
+    the dict stays small and is cleared on restart.
+    """
+
+    with _session_locks_guard:
+        return _session_locks.setdefault(session_key, threading.Lock())
 
 
 def allowed_file(filename):
@@ -145,6 +161,7 @@ def create_recording_session(subject, mime_type, extension, start_time=None):
         mime_type=(mime_type or "")[:100],
         extension=extension if extension in ALLOWED_EXTENSIONS else "webm",
         segments_json="[]",
+        bookmarks_json="[]",
     )
 
     db.session.add(session)
@@ -214,14 +231,20 @@ def save_recording_chunk(session, chunk_file, segment_index, chunk_index):
 
     chunk_file.save(os.path.join(chunk_dir, filename))
 
-    segments = set(json.loads(session.segments_json or "[]"))
-    segments.add(segment_index)
-    session.segments_json = json.dumps(sorted(segments))
-    session.chunk_count = (session.chunk_count or 0) + 1
-    db.session.commit()
+    # Concurrent chunk uploads for the same session would otherwise race on
+    # the read-modify-write of segments_json/chunk_count (each request sees a
+    # stale attribute snapshot); the per-session lock plus a refresh
+    # serializes them so no update is lost.
+    with _session_lock(session.session_key):
+        db.session.refresh(session)
+        segments = set(json.loads(session.segments_json or "[]"))
+        segments.add(segment_index)
+        session.segments_json = json.dumps(sorted(segments))
+        session.chunk_count = (session.chunk_count or 0) + 1
+        db.session.commit()
 
 
-def finish_recording_session(session, end_time=None):
+def finish_recording_session(session, end_time=None, recording_duration=None):
     """
     Finalizes a recording session by assembling chunks into a single file and creating a corresponding Note.
 
@@ -229,6 +252,9 @@ def finish_recording_session(session, end_time=None):
     :type session: RecordingSession
     :param end_time: Optional end time of the recording in HH:MM:SS format
     :type end_time: str
+    :param recording_duration: Optional true recorded duration in seconds,
+        excluding any paused stretches (used for WebM duration metadata).
+    :type recording_duration: int or None
     :return: The newly created Note object.
     :rtype: Note
     :raises ValueError: If the session is not active, has no chunks, or if there is an error during assembly.
@@ -271,9 +297,12 @@ def finish_recording_session(session, end_time=None):
         raise ValueError("Could not assemble recording chunks.") from error
 
     if session.extension == "webm":
-        add_webm_duration_metadata(
-            final_path, duration_seconds_from_times(session.start_time, end_time)
+        duration = (
+            recording_duration
+            if recording_duration and recording_duration > 0
+            else duration_seconds_from_times(session.start_time, end_time)
         )
+        add_webm_duration_metadata(final_path, duration)
 
     relative_path = f"recordings/{os.path.basename(final_path)}"
     note = Note(
@@ -285,6 +314,7 @@ def finish_recording_session(session, end_time=None):
         unit=session.unit or DEFAULT_UNIT,
         recording_path=relative_path,
         notes_html=session.notes_html,
+        bookmarks_json=session.bookmarks_json or "[]",
         transcription_status=TRANSCRIPTION_PENDING,
     )
 
@@ -485,6 +515,59 @@ def add_webm_duration_metadata(file_path, duration_seconds):
             os.remove(temp_path)
 
 
+def find_ebml_element(data, element_id, start, end):
+    """
+    Walk top-level EBML elements in a byte range and return the matching element.
+
+    A plain ``data.find()`` can false-match an element ID inside another
+    element's payload (e.g. the SeekID/SeekPosition entries for the Info
+    element inside a SeekHead), so elements are matched by walking element
+    boundaries instead.
+
+    :param data: The bytearray of the EBML/WebM data.
+    :type data: bytearray
+    :param element_id: Integer element ID to look for.
+    :type element_id: int
+    :param start: Byte offset where the element walk begins.
+    :type start: int
+    :param end: Byte offset where the element walk ends.
+    :type end: int
+    :return: A tuple of (element_start, content_pos, content_end, unknown) for
+        the matching element, or None if it was not found.
+    :rtype: tuple of (int, int, int, bool) or None
+    """
+
+    pos = start
+    while pos + 2 <= end:
+        first = data[pos]
+        mask = 0x80
+        id_len = 1
+        while id_len < 4 and not (first & mask):
+            mask >>= 1
+            id_len += 1
+
+        if pos + id_len + 1 > end:
+            return None
+
+        try:
+            size, size_len, unknown = read_ebml_size_metadata(data, pos + id_len)
+
+        except ValueError:
+            return None
+
+        content_pos = pos + id_len + size_len
+        content_end = end if unknown else content_pos + size
+        if int.from_bytes(data[pos : pos + id_len], "big") == element_id:
+            return pos, content_pos, content_end, unknown
+
+        if unknown:
+            return None
+
+        pos = content_end
+
+    return None
+
+
 def patch_webm_duration(data, duration_seconds):
     """
     Patches the duration into the WebM data bytes.
@@ -498,21 +581,25 @@ def patch_webm_duration(data, duration_seconds):
     :raises ValueError: If the WebM structure is invalid or cannot be patched.
     """
 
-    info_pos = data.find(WEBM_INFO_ID)
-    if info_pos < 0:
+    info_id = int.from_bytes(WEBM_INFO_ID, "big")
+    segment_bounds = find_ebml_element(
+        data, int.from_bytes(WEBM_SEGMENT_ID, "big"), 0, len(data)
+    )
+    if segment_bounds is None:
+        return None
+
+    _, seg_content_pos, seg_content_end, _ = segment_bounds
+    info_bounds = find_ebml_element(data, info_id, seg_content_pos, seg_content_end)
+    if info_bounds is None:
+        return None
+
+    info_pos, content_pos, info_end, info_unknown = info_bounds
+    if info_unknown:
         return None
 
     size_pos = info_pos + len(WEBM_INFO_ID)
-    try:
-        info_size, size_len = read_ebml_size(data, size_pos)
-
-    except ValueError:
-        return None
-
-    content_pos = size_pos + size_len
-    info_end = content_pos + info_size
-    if info_end > len(data):
-        return None
+    size_len = content_pos - size_pos
+    info_size = info_end - content_pos
 
     duration_payload = struct.pack(">d", float(duration_seconds * 1000))
     duration_element = (
@@ -528,21 +615,27 @@ def patch_webm_duration(data, duration_seconds):
         except ValueError:
             return None
 
-        if value_size == len(duration_payload):
-            data[
-                value_pos + value_size_len : value_pos + value_size_len + value_size
-            ] = duration_payload
-            return data
-
-        return None
-
-    insert_pos = info_end
-    if data[insert_pos : insert_pos + len(WEBM_TRACKS_ID)] != WEBM_TRACKS_ID:
-        tracks_pos = data.find(WEBM_TRACKS_ID, content_pos)
-        if tracks_pos < 0:
+        # Rewrite the duration in place, matching the existing value width
+        # (float64 from most writers, float32 from ffmpeg-generated files).
+        if value_size == 8:
+            duration_payload = struct.pack(">d", float(duration_seconds * 1000))
+        elif value_size == 4:
+            duration_payload = struct.pack(">f", float(duration_seconds * 1000))
+        else:
             return None
 
-        insert_pos = tracks_pos
+        data[
+            value_pos + value_size_len : value_pos + value_size_len + value_size
+        ] = duration_payload
+        return data
+
+    tracks_bounds = find_ebml_element(
+        data, int.from_bytes(WEBM_TRACKS_ID, "big"), seg_content_pos, seg_content_end
+    )
+    if tracks_bounds is None:
+        return None
+
+    insert_pos = tracks_bounds[0]
 
     new_info_size = info_size + len(duration_element)
     encoded_info_size = encode_ebml_size(new_info_size, size_len)

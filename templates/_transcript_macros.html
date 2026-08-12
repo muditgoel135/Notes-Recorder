@@ -1,3 +1,19 @@
+{% macro render_bookmarks(note) %}
+{%- set bookmarks = note.bookmarks_json | from_json -%}
+{%- if bookmarks -%}
+<div class="transcript-bookmarks" data-note-id="{{ note.id }}">
+    <span class="small text-muted me-1">Bookmarks:</span>
+    {%- for bookmark in bookmarks -%}
+    {%- set total = bookmark.t | int -%}
+    <button type="button" class="bookmark-chip" data-note-id="{{ note.id }}" data-time="{{ bookmark.t }}"
+        title="Jump to {{ "%02d:%02d"|format(total // 60, total % 60) }}">
+        {{ "%02d:%02d"|format(total // 60, total % 60) }}
+    </button>
+    {%- endfor -%}
+</div>
+{%- endif -%}
+{%- endmacro %}
+
 {% macro render_words(note, words) %}
 {%- if words %}
 {%- set speakers = note.speakers_by_order() %}

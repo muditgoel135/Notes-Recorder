@@ -23,6 +23,7 @@ from core.config import (
     KEY_POINTS_COMPLETED,
     KEY_POINTS_FAILED,
     KEY_POINTS_RETRY_SECONDS,
+    KEY_POINTS_MAX_RETRIES,
     OLLAMA_API_KEY,
     OLLAMA_MODEL,
     OLLAMA_CHAT_URL,
@@ -37,6 +38,51 @@ from services.video_embeds import (
     process_video_embeds,
 )
 from audio.audio_processing import is_internet_available
+
+_offline_retry_counts = {}
+
+_PUNCTUATION_ONLY_RE = re.compile(r"^[\W_]+$")
+
+
+def _join_words_with_spacing(words):
+    """
+    Join Whisper word tokens into a continuous string.
+
+    Whisper word tokens usually carry their leading whitespace, so tokens can
+    be concatenated directly, but some tokens (notably with
+    ``condition_on_previous_text`` disabled or in non-English languages) lack
+    it. A single space is inserted before tokens that neither start with
+    whitespace nor are punctuation-only, so strings like "hello!" and
+    "नमस्ते दुनिया" still join correctly.
+
+    :param words: A list of word token strings.
+    :type words: list of str
+    :return: The joined string.
+    :rtype: str
+    """
+
+    parts = []
+    for index, word in enumerate(words):
+        if index > 0 and not word[:1].isspace() and not _PUNCTUATION_ONLY_RE.match(word):
+            parts.append(" ")
+        parts.append(word)
+    return "".join(parts)
+
+
+def reset_key_points_offline_retries(note_id):
+    """
+    Clear the offline-retry counter for a note.
+
+    Called when extraction is re-triggered manually or by a generation bump so
+    an earlier retry cap doesn't fail the new attempt immediately.
+
+    :param note_id: ID of the note.
+    :type note_id: int
+    :return: None
+    :rtype: None
+    """
+
+    _offline_retry_counts.pop(note_id, None)
 
 
 def update_key_points_status(
@@ -130,7 +176,7 @@ def format_transcript_with_speakers(note):
         if spk != current_spk:
             if current_words:
                 lines.append(
-                    f"{speaker_name(current_spk)}: {''.join(current_words).strip()}"
+                    f"{speaker_name(current_spk)}: {_join_words_with_spacing(current_words).strip()}"
                 )
 
             current_spk = spk
@@ -138,7 +184,7 @@ def format_transcript_with_speakers(note):
         current_words.append(word["w"])
 
     if current_words:
-        lines.append(f"{speaker_name(current_spk)}: {''.join(current_words).strip()}")
+        lines.append(f"{speaker_name(current_spk)}: {_join_words_with_spacing(current_words).strip()}")
 
     return "\n".join(lines)
 
@@ -206,6 +252,7 @@ def extract_key_points(note_id, transcript, generation=None):
             generation = note.key_points_generation or 0
 
         if note.key_points_generation != generation:
+            _offline_retry_counts.pop(note_id, None)
             return
 
         if not transcript and not (
@@ -232,6 +279,24 @@ def extract_key_points(note_id, transcript, generation=None):
             return
 
         if not is_internet_available():
+            # Cap the number of consecutive offline retries so a long outage
+            # doesn't leave one timer thread per note rescheduling forever.
+            retry_entry = _offline_retry_counts.get(note_id)
+            retry_count = (
+                retry_entry[1]
+                if retry_entry and retry_entry[0] == generation
+                else 0
+            )
+            if retry_count >= KEY_POINTS_MAX_RETRIES:
+                update_key_points_status(
+                    note_id,
+                    KEY_POINTS_FAILED,
+                    error="Ollama is unreachable. Retry key point extraction manually.",
+                    generation=generation,
+                )
+                return
+
+            _offline_retry_counts[note_id] = (generation, retry_count + 1)
             update_key_points_status(
                 note_id,
                 KEY_POINTS_PENDING,
@@ -379,6 +444,7 @@ def extract_key_points(note_id, transcript, generation=None):
                 error=None,
                 generation=generation,
             )
+            _offline_retry_counts.pop(note_id, None)
 
         except Exception as exc:
             db.session.rollback()

@@ -48,6 +48,7 @@ class Note(db.Model):
     transcription_stage = db.Column(db.String(20), nullable=True)
 
     transcription_error = db.Column(db.Text, nullable=True)
+    bookmarks_json = db.Column(db.Text, nullable=True)
     video_transcriptions = db.Column(db.Text, nullable=True)
     title = db.Column(db.String(200), nullable=True)
     key_points = db.Column(db.Text, nullable=True)
@@ -96,6 +97,7 @@ class RecordingSession(db.Model):
     chunk_count = db.Column(db.Integer, nullable=False, default=0)
     segments_json = db.Column(db.Text, nullable=True)
     notes_html = db.Column(db.Text, nullable=True)
+    bookmarks_json = db.Column(db.Text, nullable=True)
     note_id = db.Column(db.Integer, db.ForeignKey("note.id"), nullable=True)
     note = db.relationship("Note", backref="recording_session", uselist=False)
 
@@ -119,6 +121,7 @@ class RecordingSession(db.Model):
             "extension": self.extension,
             "chunk_count": self.chunk_count,
             "notes_html": self.notes_html or "",
+            "bookmarks_json": self.bookmarks_json or "[]",
             "note_id": self.note_id,
         }
 

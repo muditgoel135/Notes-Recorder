@@ -248,6 +248,7 @@
         <div class="collapse" id="transcript-{{ note.id }}">
             <div class="small text-muted mb-1">Full Transcript</div>
             {% set words = note.transcription_segments | from_json %}
+            {{ transcript.render_bookmarks(note) }}
             {{ transcript.render_words(note, words) }}
             {% if words %}{{ transcript.render_video_transcripts(note) }}{% endif %}
         </div>

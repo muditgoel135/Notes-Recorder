@@ -14,6 +14,7 @@ document.getElementById("recordings-list").addEventListener("click", async (even
     const saveDatetimeButton = event.target.closest(".save-datetime-btn");
     const pageButton = event.target.closest("#prev-page-btn, #next-page-btn");
     const wordSpan = event.target.closest(".transcript-word");
+    const bookmarkChip = event.target.closest(".bookmark-chip");
     const speakerBadge = event.target.closest(".speaker-badge");
     const retryTranscriptionButton = event.target.closest(".retry-transcription-btn");
     const retryKeyPointsButton = event.target.closest(".retry-key-points-btn");
@@ -152,6 +153,36 @@ document.getElementById("recordings-list").addEventListener("click", async (even
                 });
             } catch (error) {
                 alert(error.message);
+            }
+        }
+        return;
+    }
+
+    if (bookmarkChip) {
+        const noteId = bookmarkChip.dataset.noteId;
+        const time = Number(bookmarkChip.dataset.time);
+        const audio = document.getElementById(`audio-${noteId}`);
+        if (audio) {
+            audio.currentTime = time;
+            audio.play();
+        }
+        const container = document.querySelector(`.transcript-words[data-note-id="${noteId}"]`);
+        if (container) {
+            const words = container.querySelectorAll(".transcript-word");
+            let targetWord = null;
+            for (const word of words) {
+                if (Number(word.dataset.start) <= time) {
+                    targetWord = word;
+                } else {
+                    break;
+                }
+            }
+            if (targetWord) {
+                container.querySelectorAll(".transcript-word.active-word").forEach((word) => {
+                    word.classList.remove("active-word");
+                });
+                targetWord.classList.add("active-word");
+                targetWord.scrollIntoView({ behavior: "smooth", block: "nearest" });
             }
         }
         return;

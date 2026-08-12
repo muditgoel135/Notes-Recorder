@@ -31,6 +31,7 @@ from core.config import (
     TRANSCRIPTION_FAILED,
     KEY_POINTS_PENDING,
     KEY_POINTS_PROCESSING,
+    KEY_POINTS_FAILED,
 )
 
 # Import audio-side transcription pipeline helpers
@@ -46,6 +47,7 @@ from audio.audio_processing import (
     update_transcription_progress,
     track_whisper_progress,
     prepare_audio_for_transcription,
+    apply_silence_trimming,
     get_diarization_pipeline,
     load_waveform,
     diarize_audio,
@@ -60,6 +62,9 @@ from audio.key_points import (
     has_speaker_annotations,
     extract_key_points,
 )
+
+# Import video embed helpers for key points extraction
+from services.video_embeds import extract_video_embeds
 
 transcription_executor = ThreadPoolExecutor(max_workers=1)
 
@@ -83,6 +88,7 @@ def transcribe_note(note_id, audio_path):
 
     with app.app_context():
         processed_path = audio_path
+        transcription = ""
         try:
             note = update_transcription_status(note_id, TRANSCRIPTION_PROCESSING)
             if not note:
@@ -90,62 +96,76 @@ def transcribe_note(note_id, audio_path):
             update_transcription_progress(note_id, 0, stage=STAGE_TRANSCRIBING)
 
             processed_path = prepare_audio_for_transcription(audio_path)
+            processed_path, trim_offset, has_speech = apply_silence_trimming(
+                processed_path,
+                remove_source=processed_path != audio_path,
+            )
 
-            transcribe_kwargs = {
-                "fp16": False,
-                "word_timestamps": True,
-                "verbose": False,
-                # Decode each window independently so a hallucination on a
-                # noisy stretch doesn't cascade through the whole recording.
-                "condition_on_previous_text": False,
-            }
+            words = []
+            if has_speech:
+                transcribe_kwargs = {
+                    "fp16": False,
+                    "word_timestamps": True,
+                    "verbose": False,
+                    # Decode each window independently so a hallucination on a
+                    # noisy stretch doesn't cascade through the whole recording.
+                    "condition_on_previous_text": False,
+                }
 
-            if note.subject == HINDI_SUBJECT:
-                transcribe_kwargs["language"] = "hi"
-                transcribe_kwargs["initial_prompt"] = HINDI_INITIAL_PROMPT
-                transcribe_kwargs["beam_size"] = 5
-            else:
-                # Force English so a noisy opening window can't misdirect
-                # Whisper's language detection and bias the whole recording.
-                transcribe_kwargs["language"] = "en"
+                if note.subject == HINDI_SUBJECT:
+                    transcribe_kwargs["language"] = "hi"
+                    transcribe_kwargs["initial_prompt"] = HINDI_INITIAL_PROMPT
+                    transcribe_kwargs["beam_size"] = 5
+                else:
+                    # Force English so a noisy opening window can't misdirect
+                    # Whisper's language detection and bias the whole recording.
+                    transcribe_kwargs["language"] = "en"
 
-            with track_whisper_progress(note_id):
-                result = get_whisper_model().transcribe(
-                    processed_path, **transcribe_kwargs
-                )
+                with track_whisper_progress(note_id):
+                    result = get_whisper_model().transcribe(
+                        processed_path, **transcribe_kwargs
+                    )
 
-            transcription = (result.get("text") or "").strip()
-            words = [
-                {"s": word["start"], "w": word["word"]}
-                for segment in result.get("segments") or []
-                for word in segment.get("words") or []
-            ]
+                transcription = (result.get("text") or "").strip()
+                words = [
+                    {"s": word["start"], "w": word["word"]}
+                    for segment in result.get("segments") or []
+                    for word in segment.get("words") or []
+                ]
 
-            if words:
-                update_transcription_progress(
-                    note_id, DIARIZATION_START_PERCENT, stage=STAGE_DIARIZING
-                )
-                turns = diarize_audio(
-                    processed_path,
-                    progress_callback=lambda percent: update_transcription_progress(
-                        note_id, percent, stage=STAGE_DIARIZING
-                    ),
-                )
-                if turns:
-                    num_speakers = assign_speakers(words, turns)
-                    Speaker.query.filter_by(note_id=note_id).delete()
-                    for index in range(num_speakers):
-                        db.session.add(
-                            Speaker(
-                                note_id=note_id,
-                                order_index=index,
-                                label=f"Speaker {index + 1}",
-                                color=SPEAKER_COLOR_PALETTE[
-                                    index % len(SPEAKER_COLOR_PALETTE)
-                                ],
+                if words:
+                    update_transcription_progress(
+                        note_id, DIARIZATION_START_PERCENT, stage=STAGE_DIARIZING
+                    )
+                    turns = diarize_audio(
+                        processed_path,
+                        progress_callback=lambda percent: update_transcription_progress(
+                            note_id, percent, stage=STAGE_DIARIZING
+                        ),
+                    )
+                    if turns:
+                        num_speakers = assign_speakers(words, turns)
+                        Speaker.query.filter_by(note_id=note_id).delete()
+                        for index in range(num_speakers):
+                            db.session.add(
+                                Speaker(
+                                    note_id=note_id,
+                                    order_index=index,
+                                    label=f"Speaker {index + 1}",
+                                    color=SPEAKER_COLOR_PALETTE[
+                                        index % len(SPEAKER_COLOR_PALETTE)
+                                    ],
+                                )
                             )
-                        )
-                    db.session.commit()
+                        db.session.commit()
+
+                    # Silence trimming made Whisper's timestamps relative to
+                    # the trimmed audio; shift them back into the original
+                    # recording's time domain so transcript words stay
+                    # aligned with audio playback and bookmarks.
+                    if trim_offset:
+                        for word in words:
+                            word["s"] = round(word["s"] + trim_offset, 3)
 
             segments_json = json.dumps(words) if words else None
             update_transcription_status(
@@ -171,11 +191,19 @@ def transcribe_note(note_id, audio_path):
                 os.remove(processed_path)
 
         note = db.session.get(Note, note_id)
-        extract_key_points(
-            note_id,
-            transcription,
-            note.key_points_generation if note else 0,
+        generation = note.key_points_generation if note else 0
+        has_video_embeds = bool(
+            note and note.notes_html and extract_video_embeds(note.notes_html)
         )
+        if not has_speech and not transcription and not has_video_embeds:
+            update_key_points_status(
+                note_id,
+                KEY_POINTS_FAILED,
+                error="The recording contains no speech to summarize.",
+                generation=generation,
+            )
+        else:
+            extract_key_points(note_id, transcription, generation)
 
 
 def enqueue_transcription(note_id, audio_path):

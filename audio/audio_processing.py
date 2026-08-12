@@ -7,6 +7,7 @@ persisting transcription status to the database.
 """
 
 # Import required modules
+import bisect
 import os
 import socket
 import subprocess
@@ -29,6 +30,7 @@ from core.config import (
     TRANSCRIPTION_COMPLETED,
     TRANSCRIPTION_FAILED,
     RNNOISE_MODEL,
+    DIARIZATION_MAX_SPEAKERS,
 )
 
 STAGE_TRANSCRIBING = "transcribing"
@@ -295,21 +297,71 @@ def track_whisper_progress(note_id):
         whisper_transcribe_module.tqdm = original_tqdm_module
 
 
+def denoise_audio_file(audio_path):
+    """
+    Reduce steady background noise (e.g. fan or AC hum) with the RNNoise
+    ``arnndn`` filter using a pretrained model.
+
+    The neural ``arnndn`` filter preserves speech while suppressing stationary
+    noise. An FFT-style filter like ffmpeg's ``afftdn`` was found to destroy
+    speech in noisy classroom sections, so none is applied. Denoising is
+    best-effort: a missing model file or a failed filter pass leaves the
+    source audio untouched so the caller's downstream processing proceeds.
+
+    :param audio_path: Path to a 16 kHz mono PCM WAV file.
+    :return: Path to a denoised temp WAV, or audio_path when denoising is
+        unavailable or fails.
+    """
+
+    if not RNNOISE_MODEL or not os.path.isfile(RNNOISE_MODEL):
+        return audio_path
+
+    # The filter string can't hold the model's absolute path (a drive-letter
+    # colon splits the filter options and backslashes are escape characters),
+    # so run ffmpeg with the model's directory as the working directory and
+    # reference the model by bare filename instead.
+    fd, denoised_path = tempfile.mkstemp(suffix=".wav")
+    os.close(fd)
+    try:
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                audio_path,
+                "-af",
+                f"arnndn=m={os.path.basename(RNNOISE_MODEL)}",
+                # arnndn resamples to 48 kHz internally and outputs at that
+                # rate, so resample back to 16 kHz mono for Whisper/pyannote.
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                denoised_path,
+            ],
+            check=True,
+            capture_output=True,
+            cwd=os.path.dirname(RNNOISE_MODEL),
+        )
+
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        if os.path.exists(denoised_path):
+            os.remove(denoised_path)
+        return audio_path
+
+    return denoised_path
+
+
 def prepare_audio_for_transcription(audio_path):
     """
     Convert the audio to a 16 kHz mono WAV and return the temp file path.
 
-    Converts, resamples, and downmixes with ffmpeg, then optionally reduces
-    steady background noise (e.g. fan or AC hum) with the RNNoise ``arnndn``
-    filter using a pretrained model. Whisper transcribes raw, unaltered audio
-    markedly better than spectrally filtered audio — prior testing showed the
-    old denoise chain (``highpass=f=100,afftdn=nf=-25``) destroyed the speech
-    in noisy classroom sections, turning whole stretches of talk into silence
-    or Whisper hallucinations — so no FFT-style filter is applied. The neural
-    ``arnndn`` filter is used instead because it preserves speech while
-    suppressing stationary noise, and denoising is best-effort: a missing
-    model file or a failed filter pass leaves the plain converted WAV in place
-    so transcription always proceeds.
+    Converts, resamples, and downmixes with ffmpeg, then reduces steady
+    background noise (e.g. fan or AC hum) with ``denoise_audio_file`` (RNNoise
+    ``arnndn``). Whisper transcribes raw, unaltered audio markedly better than
+    spectrally filtered audio, which is why the neural ``arnndn`` filter is
+    used rather than an FFT-style filter; denoising stays best-effort so
+    transcription always proceeds even when it's unavailable.
 
     Falls back to the original path if ffmpeg is missing or fails, since
     transcribing the unprocessed audio is better than not transcribing at all.
@@ -342,40 +394,8 @@ def prepare_audio_for_transcription(audio_path):
             os.remove(wav_path)
         return audio_path
 
-    if not RNNOISE_MODEL or not os.path.isfile(RNNOISE_MODEL):
-        return wav_path
-
-    # The filter string can't hold the model's absolute path (a drive-letter
-    # colon splits the filter options and backslashes are escape characters),
-    # so run ffmpeg with the model's directory as the working directory and
-    # reference the model by bare filename instead.
-    fd, denoised_path = tempfile.mkstemp(suffix=".wav")
-    os.close(fd)
-    try:
-        subprocess.run(
-            [
-                "ffmpeg",
-                "-y",
-                "-i",
-                wav_path,
-                "-af",
-                f"arnndn=m={os.path.basename(RNNOISE_MODEL)}",
-                # arnndn resamples to 48 kHz internally and outputs at that
-                # rate, so resample back to 16 kHz mono for Whisper/pyannote.
-                "-ar",
-                "16000",
-                "-ac",
-                "1",
-                denoised_path,
-            ],
-            check=True,
-            capture_output=True,
-            cwd=os.path.dirname(RNNOISE_MODEL),
-        )
-
-    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
-        if os.path.exists(denoised_path):
-            os.remove(denoised_path)
+    denoised_path = denoise_audio_file(wav_path)
+    if denoised_path == wav_path:
         return wav_path
 
     os.remove(wav_path)
@@ -435,6 +455,13 @@ def diarize_audio(audio_path, progress_callback=None):
     """
     Return a list of (start, end, raw_speaker_label) turns, or None if unavailable.
 
+    The input audio is denoised with ``denoise_audio_file`` before it reaches
+    the pipeline, so diarization never runs on raw classroom audio (in the
+    normal transcription flow the file was already denoised during audio prep,
+    making this a second, near-identical arnndn pass — harmless, since arnndn
+    passes speech through close to untouched). Speaker attribution is capped
+    at DIARIZATION_MAX_SPEAKERS so pyannote can't invent phantom speakers.
+
     Diarization is best-effort: a missing token, missing dependency, or a
     pipeline failure all fall back to an undifferentiated transcript rather
     than failing the whole transcription.
@@ -449,6 +476,7 @@ def diarize_audio(audio_path, progress_callback=None):
     if not HUGGINGFACE_TOKEN:
         return None
 
+    denoised_path = denoise_audio_file(audio_path)
     try:
         pipeline = get_diarization_pipeline()
 
@@ -488,7 +516,7 @@ def diarize_audio(audio_path, progress_callback=None):
                 now = time.monotonic()
                 if (
                     percent == last_reported["percent"]
-                    and now - last_reported["time"] < 1
+                    or now - last_reported["time"] < 1
                 ):
                     return
 
@@ -505,7 +533,11 @@ def diarize_audio(audio_path, progress_callback=None):
                 message=r"std\(\): degrees of freedom is <= 0",
                 category=UserWarning,
             )
-            output = pipeline(load_waveform(audio_path), hook=hook)
+            output = pipeline(
+                load_waveform(denoised_path),
+                hook=hook,
+                max_speakers=DIARIZATION_MAX_SPEAKERS,
+            )
         diarization = getattr(output, "speaker_diarization", output)
         return [
             (turn.start, turn.end, label)
@@ -515,11 +547,19 @@ def diarize_audio(audio_path, progress_callback=None):
     except Exception:
         return None
 
+    finally:
+        if denoised_path != audio_path and os.path.exists(denoised_path):
+            os.remove(denoised_path)
+
 
 def assign_speakers(words, turns):
     """
     Tag each word dict in-place with a 0-based "spk" index and return the
     number of distinct speakers, based on diarization turns.
+
+    Turns are searched with a bisect over their start times instead of a
+    linear scan, so long recordings with many turns stay fast. A word outside
+    every turn still falls back to its nearest turn edge.
 
     :param words: List of dicts with "s" (start time) and "w" (word) keys
     :param turns: List of (start, end, raw_speaker_label) tuples
@@ -531,15 +571,16 @@ def assign_speakers(words, turns):
         if label not in order_map:
             order_map[label] = len(order_map)
 
+    sorted_turns = sorted(turns, key=lambda turn: turn[0])
+    turn_starts = [turn[0] for turn in sorted_turns]
+    turn_ends = [turn[1] for turn in sorted_turns]
+
     for word in words:
         start = word["s"]
-        speaker_label = None
-        for turn_start, turn_end, label in turns:
-            if turn_start <= start <= turn_end:
-                speaker_label = label
-                break
-
-        if speaker_label is None:
+        index = bisect.bisect_right(turn_starts, start) - 1
+        if index >= 0 and start <= turn_ends[index]:
+            speaker_label = sorted_turns[index][2]
+        else:
             nearest = min(
                 turns, key=lambda turn: min(abs(turn[0] - start), abs(turn[1] - start))
             )
@@ -548,3 +589,203 @@ def assign_speakers(words, turns):
         word["spk"] = order_map[speaker_label]
 
     return len(order_map)
+
+
+VAD_FRAME_SECONDS = 0.03
+VAD_HOP_SECONDS = 0.01
+VAD_SILENCE_MARGIN = 0.15
+
+
+def _read_wav_samples(wav_path):
+    """
+    Read a PCM WAV file into an int16 numpy array and its sample rate.
+
+    :param wav_path: Path to a PCM WAV file.
+    :type wav_path: str
+    :return: A tuple of (samples, sample_rate), or (None, None) when the file
+        is not a readable 16-bit PCM WAV.
+    :rtype: tuple of (numpy.ndarray, int) or (None, None)
+    """
+
+    try:
+        with wave.open(wav_path, "rb") as wav_file:
+            sample_rate = wav_file.getframerate()
+            channels = wav_file.getnchannels()
+            width = wav_file.getsampwidth()
+            if sample_rate <= 0 or channels <= 0 or width != 2:
+                return None, None
+            raw_audio = wav_file.readframes(wav_file.getnframes())
+
+    except (wave.Error, EOFError, OSError):
+        return None, None
+
+    samples = np.frombuffer(raw_audio, dtype=np.int16)
+    if channels > 1:
+        samples = samples.reshape(-1, channels).mean(axis=1).astype(np.int16)
+
+    return samples, sample_rate
+
+
+def _detect_speech_bounds(samples, sample_rate):
+    """
+    Return the first and last speech timestamps in an int16 sample array.
+
+    Frames are scored by RMS energy with an adaptive threshold derived from
+    the recording's own noise floor and peak level, so quiet but genuine
+    speech is still detected. Frames are processed in bounded-memory chunks
+    (cumulative sums of squared samples) so long recordings don't allocate
+    oversized arrays.
+
+    :param samples: int16 numpy array of audio samples.
+    :type samples: numpy.ndarray
+    :param sample_rate: Sample rate in Hz.
+    :type sample_rate: int
+    :return: A (start, end) tuple of speech bounds in seconds, or None when
+        no speech was detected.
+    :rtype: tuple of (float, float) or None
+    """
+
+    frame_size = max(1, int(sample_rate * VAD_FRAME_SECONDS))
+    hop_size = max(1, int(sample_rate * VAD_HOP_SECONDS))
+    if len(samples) < frame_size:
+        return None
+
+    window_size = sample_rate * 30
+    rms_parts = []
+    for chunk_start in range(0, len(samples), window_size):
+        chunk = samples[chunk_start : chunk_start + window_size]
+        squared = chunk.astype(np.float32)
+        np.multiply(squared, squared, out=squared)
+        cumulative = np.empty(len(squared) + 1, dtype=np.float64)
+        cumulative[0] = 0
+        np.cumsum(squared, out=cumulative[1:])
+        indices = np.arange(0, len(squared) - frame_size + 1, hop_size)
+        if indices.size == 0:
+            continue
+        sums = cumulative[indices + frame_size] - cumulative[indices]
+        rms_parts.append(np.sqrt(sums / frame_size))
+
+    if not rms_parts:
+        return None
+
+    frame_rms = np.concatenate(rms_parts)
+    noise_floor = float(np.percentile(frame_rms, 10))
+    peak = float(np.percentile(frame_rms, 99))
+    if peak <= 1e-6:
+        return None
+
+    threshold = max(noise_floor * 6.0, peak * 0.08)
+    threshold = min(threshold, peak * 0.35)
+
+    speech_mask = frame_rms > threshold
+    if not speech_mask.any():
+        return None
+
+    first_index = int(np.argmax(speech_mask))
+    last_index = len(frame_rms) - 1 - int(np.argmax(speech_mask[::-1]))
+    start = first_index * hop_size / sample_rate
+    end = (last_index * hop_size + frame_size) / sample_rate
+    return start, end
+
+
+def _trim_wav(wav_path, start, end):
+    """
+    Trim a PCM WAV to the [start, end] second range with ffmpeg.
+
+    :param wav_path: Path to the source PCM WAV.
+    :type wav_path: str
+    :param start: Seconds into the source to start the trim.
+    :type start: float
+    :param end: Seconds into the source to end the trim.
+    :type end: float
+    :return: Path to the trimmed temp WAV, or None on failure.
+    :rtype: str or None
+    """
+
+    fd, out_path = tempfile.mkstemp(suffix=".wav")
+    os.close(fd)
+    try:
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                wav_path,
+                "-af",
+                f"atrim=start={start:.3f}:end={end:.3f}",
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                out_path,
+            ],
+            check=True,
+            capture_output=True,
+        )
+
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        if os.path.exists(out_path):
+            os.remove(out_path)
+        return None
+
+    return out_path
+
+
+def apply_silence_trimming(audio_path, remove_source=False):
+    """
+    Trim leading and trailing silence from a 16 kHz mono PCM WAV using a
+    lightweight energy-based voice-activity detector.
+
+    Whisper is slower and more prone to hallucinating when long stretches of
+    dead air sit at the edges of a recording, so the detected speech span is
+    kept with a small silence margin on either side. The trimmed audio is
+    re-encoded losslessly (PCM to PCM), and Whisper's word timestamps become
+    relative to the trimmed file, so callers must add the returned leading
+    offset back when persisting segment times to keep them aligned with the
+    original audio.
+
+    :param audio_path: Path to a 16 kHz mono PCM WAV file.
+    :type audio_path: str
+    :param remove_source: Whether to delete audio_path when a trimmed copy is
+        produced (safe only when audio_path is a temporary file).
+    :type remove_source: bool
+    :return: A tuple of (path, leading_offset, has_speech). path is the file
+        to transcribe (a trimmed copy, or the input when nothing was
+        trimmed), leading_offset is seconds of audio removed from the start,
+        and has_speech is False when no speech was detected at all.
+    :rtype: tuple of (str, float, bool)
+    """
+
+    samples, sample_rate = _read_wav_samples(audio_path)
+    if samples is None or sample_rate is None:
+        return audio_path, 0.0, True
+
+    bounds = _detect_speech_bounds(samples, sample_rate)
+    if bounds is None:
+        return audio_path, 0.0, False
+
+    start, end = bounds
+
+    # The detected speech span is too short to be meaningful speech.
+    if end - start < 0.2:
+        return audio_path, 0.0, False
+
+    total_duration = len(samples) / sample_rate
+    trim_start = max(0.0, start - VAD_SILENCE_MARGIN)
+    trim_end = min(total_duration, end + VAD_SILENCE_MARGIN)
+
+    # Less than the margin is trimmed at each edge; not worth re-encoding.
+    if trim_start < 0.15 and trim_end > total_duration - 0.15:
+        return audio_path, 0.0, True
+
+    trimmed_path = _trim_wav(audio_path, trim_start, trim_end)
+    if trimmed_path is None:
+        return audio_path, 0.0, True
+
+    if remove_source:
+        try:
+            os.remove(audio_path)
+        except OSError:
+            pass
+
+    return trimmed_path, trim_start, True

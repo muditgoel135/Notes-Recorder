@@ -158,6 +158,8 @@ def create_tag():
         return jsonify({"error": "A tag name and a valid hex color are required."}), 400
 
     if parent_id is not None:
+        if not str(parent_id).isdigit():
+            return jsonify({"error": "Invalid parent tag."}), 400
         parent_id = int(parent_id)
         Tag.query.get_or_404(parent_id)
 

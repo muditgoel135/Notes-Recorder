@@ -7,6 +7,7 @@ This module loads environment variables from a .env file and defines configurati
 
 # Import required modules
 import os
+import secrets
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -16,7 +17,40 @@ RECORDINGS_DIR = os.path.join(BASE_DIR, "recordings")
 NOTE_IMAGES_DIR = os.path.join(RECORDINGS_DIR, "note_images")
 VIDEO_CACHE_DIR = os.path.join(RECORDINGS_DIR, "video_cache")
 
-SECRET_KEY = os.environ.get("SECRET_KEY", "default_secret_key")
+
+def _load_or_create_secret_key():
+    """
+    Return the app's secret key, generating a persistent random one on first use.
+
+    Prefers SECRET_KEY from the environment. Otherwise it loads the key stored
+    in instance/secret_key, creating that file with a fresh random key when it
+    does not exist yet. instance/ is gitignored, so the generated key never
+    leaks into the repository and survives restarts.
+
+    :return: The app's secret key.
+    :rtype: str
+    """
+
+    env_key = os.environ.get("SECRET_KEY")
+    if env_key:
+        return env_key
+
+    instance_dir = os.path.join(BASE_DIR, "instance")
+    key_file = os.path.join(instance_dir, "secret_key")
+    if os.path.isfile(key_file):
+        with open(key_file, "r", encoding="utf-8") as key_handle:
+            stored_key = key_handle.read().strip()
+        if stored_key:
+            return stored_key
+
+    os.makedirs(instance_dir, exist_ok=True)
+    generated_key = secrets.token_hex(32)
+    with open(key_file, "w", encoding="utf-8") as key_handle:
+        key_handle.write(generated_key)
+    return generated_key
+
+
+SECRET_KEY = _load_or_create_secret_key()
 
 ALLOWED_EXTENSIONS = {"wav", "mp3", "ogg", "webm", "m4a", "mp4"}
 
@@ -44,6 +78,7 @@ OLLAMA_API_KEY = os.environ.get("OLLAMA_API_KEY", "")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "minimax-m3")
 OLLAMA_CHAT_URL = "https://ollama.com/api/chat"
 KEY_POINTS_RETRY_SECONDS = int(os.environ.get("KEY_POINTS_RETRY_SECONDS", "30"))
+KEY_POINTS_MAX_RETRIES = int(os.environ.get("KEY_POINTS_MAX_RETRIES", "5"))
 VIDEO_KEYFRAME_COUNT = int(os.environ.get("VIDEO_KEYFRAME_COUNT", "6"))
 
 DEFAULT_PER_PAGE = int(os.environ.get("DEFAULT_PER_PAGE", "10"))
@@ -51,6 +86,11 @@ DEFAULT_PER_PAGE = int(os.environ.get("DEFAULT_PER_PAGE", "10"))
 DEFAULT_UNIT = "General"
 
 HUGGINGFACE_TOKEN = os.environ.get("HUGGINGFACE_TOKEN", "")
+
+# Maximum number of speakers speaker diarization may attribute turns to.
+# Classrooms rarely exceed this; capping it stops pyannote from inventing
+# phantom speakers out of background noise or cross-talk.
+DIARIZATION_MAX_SPEAKERS = int(os.environ.get("DIARIZATION_MAX_SPEAKERS", "15"))
 
 HINDI_SUBJECT = "Hindi"
 HINDI_INITIAL_PROMPT = (
