@@ -69,7 +69,5 @@ def test_expand_webm_segment_size():
     data = bytearray(segment)
 
     assert expand_webm_segment_size(data, 5) is True
-    new_size, size_len, unknown = read_ebml_size_metadata(
-        data, len(WEBM_SEGMENT_ID)
-    )
+    new_size, size_len, unknown = read_ebml_size_metadata(data, len(WEBM_SEGMENT_ID))
     assert new_size == len(info) + 5

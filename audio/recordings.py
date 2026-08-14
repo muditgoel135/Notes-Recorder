@@ -624,9 +624,9 @@ def patch_webm_duration(data, duration_seconds):
         else:
             return None
 
-        data[
-            value_pos + value_size_len : value_pos + value_size_len + value_size
-        ] = duration_payload
+        data[value_pos + value_size_len : value_pos + value_size_len + value_size] = (
+            duration_payload
+        )
         return data
 
     tracks_bounds = find_ebml_element(

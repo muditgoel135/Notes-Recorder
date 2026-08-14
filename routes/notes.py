@@ -272,7 +272,8 @@ def set_note_tags(note_id):
     data = request.get_json(silent=True) or {}
     raw_tag_ids = data.get("tag_ids") or []
     if not isinstance(raw_tag_ids, list) or not all(
-        isinstance(tag_id, int) or (isinstance(tag_id, str) and tag_id.strip().isdigit())
+        isinstance(tag_id, int)
+        or (isinstance(tag_id, str) and tag_id.strip().isdigit())
         for tag_id in raw_tag_ids
     ):
         return jsonify({"error": "Invalid tag ids."}), 400

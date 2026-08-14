@@ -43,6 +43,48 @@ _offline_retry_counts = {}
 
 _PUNCTUATION_ONLY_RE = re.compile(r"^[\W_]+$")
 
+# Pattern for a stray backslash that isn't a valid JSON escape (e.g. LaTeX
+# style "\(" or "\(\)"). Matched against a JSON candidate.
+_STRAY_BACKSLASH_RE = re.compile(r"\\(?![\"\\/bfnrtu])")
+
+
+def _parse_ollama_json(content):
+    """
+    Parse a JSON object out of an Ollama chat response.
+
+    Models asked for JSON sometimes wrap it in prose or markdown code fences,
+    or emit backslashes that aren't valid JSON escapes (e.g. LaTeX-style
+    "\\(" ). This extracts the first balanced {...} object from the content,
+    escapes stray backslashes, and retries the parse.
+
+    :param content: Raw model content string.
+    :type content: str
+    :return: The parsed JSON value, or None if no valid JSON object was found.
+    :rtype: object or None
+    """
+
+    if not content:
+        return None
+
+    fenced = re.search(r"```(?:json)?\s*(.*?)```", content, re.DOTALL)
+    if fenced:
+        content = fenced.group(1)
+
+    start = content.find("{")
+    end = content.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
+
+    candidate = content[start : end + 1]
+    try:
+        return json.loads(candidate)
+    except json.JSONDecodeError:
+        sanitized = _STRAY_BACKSLASH_RE.sub(r"\\\\", candidate)
+        try:
+            return json.loads(sanitized)
+        except json.JSONDecodeError:
+            return None
+
 
 def _join_words_with_spacing(words):
     """
@@ -63,7 +105,11 @@ def _join_words_with_spacing(words):
 
     parts = []
     for index, word in enumerate(words):
-        if index > 0 and not word[:1].isspace() and not _PUNCTUATION_ONLY_RE.match(word):
+        if (
+            index > 0
+            and not word[:1].isspace()
+            and not _PUNCTUATION_ONLY_RE.match(word)
+        ):
             parts.append(" ")
         parts.append(word)
     return "".join(parts)
@@ -184,7 +230,9 @@ def format_transcript_with_speakers(note):
         current_words.append(word["w"])
 
     if current_words:
-        lines.append(f"{speaker_name(current_spk)}: {_join_words_with_spacing(current_words).strip()}")
+        lines.append(
+            f"{speaker_name(current_spk)}: {_join_words_with_spacing(current_words).strip()}"
+        )
 
     return "\n".join(lines)
 
@@ -283,9 +331,7 @@ def extract_key_points(note_id, transcript, generation=None):
             # doesn't leave one timer thread per note rescheduling forever.
             retry_entry = _offline_retry_counts.get(note_id)
             retry_count = (
-                retry_entry[1]
-                if retry_entry and retry_entry[0] == generation
-                else 0
+                retry_entry[1] if retry_entry and retry_entry[0] == generation else 0
             )
             if retry_count >= KEY_POINTS_MAX_RETRIES:
                 update_key_points_status(
@@ -410,22 +456,26 @@ def extract_key_points(note_id, transcript, generation=None):
             )
 
             response.raise_for_status()
-            content = (
-                response.json().get("message", {}).get("content", "") or ""
-            ).strip()
+            try:
+                content = (
+                    response.json().get("message", {}).get("content", "") or ""
+                ).strip()
+
+            except json.JSONDecodeError:
+                raise ValueError(
+                    "Ollama returned a non-JSON response. Check that the "
+                    "Ollama server is running and reachable."
+                )
 
             if not content:
                 raise ValueError("Ollama returned an empty response.")
 
-            try:
-                parsed = json.loads(content)
-
-            except json.JSONDecodeError:
-                # Ollama sometimes emits backslashes that aren't valid JSON
-                # escapes (e.g. LaTeX-style "\(" ). Escape stray backslashes
-                # and retry instead of failing the whole extraction.
-                sanitized = re.sub(r'\\(?!["\\/bfnrtu])', r"\\\\", content)
-                parsed = json.loads(sanitized)
+            parsed = _parse_ollama_json(content)
+            if parsed is None:
+                raise ValueError(
+                    "Ollama did not return a valid JSON object. The model "
+                    "may have refused or returned an unexpected format."
+                )
 
             title = (parsed.get("title") or "").strip()
             key_points = (parsed.get("key_points") or "").strip()

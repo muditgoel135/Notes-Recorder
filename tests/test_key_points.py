@@ -7,7 +7,11 @@ Tests for key-points transcript formatting helpers.
 import json
 from types import SimpleNamespace
 
-from audio.key_points import _join_words_with_spacing, format_transcript_with_speakers
+from audio.key_points import (
+    _join_words_with_spacing,
+    _parse_ollama_json,
+    format_transcript_with_speakers,
+)
 
 
 def test_join_words_with_leading_spaces():
@@ -28,6 +32,39 @@ def test_join_words_unicode():
 
 def test_join_words_empty():
     assert _join_words_with_spacing([]) == ""
+
+
+def test_parse_ollama_json_plain():
+    result = _parse_ollama_json('{"title": "Hi", "key_points": "- a"}')
+    assert result == {"title": "Hi", "key_points": "- a"}
+
+
+def test_parse_ollama_json_ignores_prose():
+    content = (
+        "Sure, here is the JSON you asked for:\n"
+        '{"title": "Hi", "key_points": "- a"}\n'
+        "Let me know if you need more help."
+    )
+    result = _parse_ollama_json(content)
+    assert result == {"title": "Hi", "key_points": "- a"}
+
+
+def test_parse_ollama_json_markdown_fence():
+    content = '```json\n{"title": "Hi", "key_points": "- a"}\n```'
+    result = _parse_ollama_json(content)
+    assert result == {"title": "Hi", "key_points": "- a"}
+
+
+def test_parse_ollama_json_stray_backslash():
+    content = '{"title": "Math", "key_points": "- \\\\(x + y\\\\)"}'
+    result = _parse_ollama_json(content)
+    assert result == {"title": "Math", "key_points": "- \\(x + y\\)"}
+
+
+def test_parse_ollama_json_invalid_returns_none():
+    assert _parse_ollama_json("") is None
+    assert _parse_ollama_json("no json here") is None
+    assert _parse_ollama_json("{not valid json}") is None
 
 
 def test_format_transcript_with_speakers_uses_spacing():
