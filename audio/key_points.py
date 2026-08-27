@@ -39,16 +39,16 @@ from services.video_embeds import (
 )
 from audio.audio_processing import is_internet_available
 
-_offline_retry_counts = {}
+_offline_retry_counts: dict[int, tuple[int | None, int]] = {}
 
-_PUNCTUATION_ONLY_RE = re.compile(r"^[\W_]+$")
+_PUNCTUATION_ONLY_RE: "re.Pattern[str]" = re.compile(r"^[\W_]+$")
 
 # Pattern for a stray backslash that isn't a valid JSON escape (e.g. LaTeX
 # style "\(" or "\(\)"). Matched against a JSON candidate.
-_STRAY_BACKSLASH_RE = re.compile(r"\\(?![\"\\/bfnrtu])")
+_STRAY_BACKSLASH_RE: "re.Pattern[str]" = re.compile(r"\\(?![\"\\/bfnrtu])")
 
 
-def _parse_ollama_json(content):
+def _parse_ollama_json(content: str) -> dict | None:
     """
     Parse a JSON object out of an Ollama chat response.
 
@@ -86,7 +86,7 @@ def _parse_ollama_json(content):
             return None
 
 
-def _join_words_with_spacing(words):
+def _join_words_with_spacing(words: list[str]) -> str:
     """
     Join Whisper word tokens into a continuous string.
 
@@ -115,7 +115,7 @@ def _join_words_with_spacing(words):
     return "".join(parts)
 
 
-def reset_key_points_offline_retries(note_id):
+def reset_key_points_offline_retries(note_id: int) -> None:
     """
     Clear the offline-retry counter for a note.
 
@@ -132,8 +132,13 @@ def reset_key_points_offline_retries(note_id):
 
 
 def update_key_points_status(
-    note_id, status, title=None, key_points=None, error=None, generation=None
-):
+    note_id: int,
+    status: str,
+    title: str | None = None,
+    key_points: str | None = None,
+    error: str | None = None,
+    generation: int | None = None,
+) -> Note | None:
     """
     Update the key points state for a note.
 
@@ -178,7 +183,7 @@ def update_key_points_status(
     return note
 
 
-def format_transcript_with_speakers(note):
+def format_transcript_with_speakers(note: "Note") -> str:
     """
     Render transcription_segments as "Speaker N: ..." lines per turn.
 
@@ -237,7 +242,7 @@ def format_transcript_with_speakers(note):
     return "\n".join(lines)
 
 
-def is_key_points_generation_current(note_id, generation):
+def is_key_points_generation_current(note_id: int, generation: int) -> bool:
     """
     Check whether the note's key points generation matches the given value.
 
@@ -253,7 +258,7 @@ def is_key_points_generation_current(note_id, generation):
     return bool(note and note.key_points_generation == generation)
 
 
-def has_speaker_annotations(note):
+def has_speaker_annotations(note: "Note") -> bool:
     """
     Whether the note's transcription segments carry per-word speaker labels.
 
@@ -272,7 +277,9 @@ def has_speaker_annotations(note):
     return bool(words) and any(word.get("spk") is not None for word in words)
 
 
-def extract_key_points(note_id, transcript, generation=None):
+def extract_key_points(
+    note_id: int, transcript: str, generation: int | None = None
+) -> None:
     """
     Generate a title and key points for a note using Ollama.
 
@@ -442,7 +449,7 @@ def extract_key_points(note_id, transcript, generation=None):
                 if image not in note_images:
                     note_images.append(image)
             if note_images:
-                message["images"] = note_images
+                message["images"] = note_images  # type: ignore[assignment]
             response = requests.post(
                 OLLAMA_CHAT_URL,
                 headers={"Authorization": f"Bearer {OLLAMA_API_KEY}"},
@@ -483,7 +490,9 @@ def extract_key_points(note_id, transcript, generation=None):
             if not key_points:
                 raise ValueError("Ollama returned no key points.")
 
-            if not is_key_points_generation_current(note_id, generation):
+            if generation is not None and not is_key_points_generation_current(
+                note_id, generation
+            ):
                 return
 
             update_key_points_status(
@@ -498,7 +507,9 @@ def extract_key_points(note_id, transcript, generation=None):
 
         except Exception as exc:
             db.session.rollback()
-            if not is_key_points_generation_current(note_id, generation):
+            if generation is not None and not is_key_points_generation_current(
+                note_id, generation
+            ):
                 return
             error_message = str(exc).strip() or exc.__class__.__name__
 

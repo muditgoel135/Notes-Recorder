@@ -16,6 +16,7 @@ import threading
 import time
 import warnings
 import wave
+from collections.abc import Callable
 from contextlib import contextmanager
 import numpy as np
 
@@ -33,22 +34,22 @@ from core.config import (
     DIARIZATION_MAX_SPEAKERS,
 )
 
-STAGE_TRANSCRIBING = "transcribing"
-STAGE_DIARIZING = "diarizing"
+STAGE_TRANSCRIBING: str = "transcribing"
+STAGE_DIARIZING: str = "diarizing"
 
-DIARIZATION_START_PERCENT = 90
-DIARIZATION_END_PERCENT = 99
+DIARIZATION_START_PERCENT: int = 90
+DIARIZATION_END_PERCENT: int = 99
 
 whisper_model = None
-whisper_model_lock = threading.Lock()
+whisper_model_lock: threading.Lock = threading.Lock()
 
 diarization_pipeline = None
-diarization_pipeline_lock = threading.Lock()
+diarization_pipeline_lock: threading.Lock = threading.Lock()
 
-_ffmpeg_dll_handles = []
+_ffmpeg_dll_handles: list = []
 
 
-def register_ffmpeg_dll_directories():
+def register_ffmpeg_dll_directories() -> None:
     """
     Register FFmpeg's shared-library directory so torchcodec/pyannote.audio can
     load their native DLLs on Windows.
@@ -93,7 +94,9 @@ def register_ffmpeg_dll_directories():
             pass
 
 
-def is_internet_available(host="8.8.8.8", port=53, timeout=3):
+def is_internet_available(
+    host: str = "8.8.8.8", port: int = 53, timeout: float = 3
+) -> bool:
     """
     Check whether the machine has outbound internet connectivity.
 
@@ -142,8 +145,12 @@ def get_whisper_model():
 
 
 def update_transcription_status(
-    note_id, status, transcription=None, segments=None, error=None
-):
+    note_id: int,
+    status: str,
+    transcription: str | None = None,
+    segments: str | None = None,
+    error: str | None = None,
+) -> Note | None:
     """
     Update the transcription state for a note.
 
@@ -183,7 +190,9 @@ def update_transcription_status(
     return note
 
 
-def update_transcription_progress(note_id, progress, stage=None):
+def update_transcription_progress(
+    note_id: int, progress: int, stage: str | None = None
+) -> Note | None:
     """
     Update the transcription progress percentage for a note.
 
@@ -290,14 +299,14 @@ def track_whisper_progress(note_id):
         tqdm = ReportingTqdm
 
     original_tqdm_module = whisper_transcribe_module.tqdm
-    whisper_transcribe_module.tqdm = TqdmModuleShim
+    setattr(whisper_transcribe_module, "tqdm", TqdmModuleShim)
     try:
         yield
     finally:
-        whisper_transcribe_module.tqdm = original_tqdm_module
+        setattr(whisper_transcribe_module, "tqdm", original_tqdm_module)
 
 
-def denoise_audio_file(audio_path):
+def denoise_audio_file(audio_path: str) -> str:
     """
     Reduce steady background noise (e.g. fan or AC hum) with the RNNoise
     ``arnndn`` filter using a pretrained model.
@@ -352,7 +361,7 @@ def denoise_audio_file(audio_path):
     return denoised_path
 
 
-def prepare_audio_for_transcription(audio_path):
+def prepare_audio_for_transcription(audio_path: str) -> str:
     """
     Convert the audio to a 16 kHz mono WAV and return the temp file path.
 
@@ -418,7 +427,7 @@ def get_diarization_pipeline():
         with diarization_pipeline_lock:
             if diarization_pipeline is None:
                 register_ffmpeg_dll_directories()
-                from pyannote.audio import Pipeline
+                from pyannote.audio import Pipeline  # type: ignore[import-untyped]
 
                 diarization_pipeline = Pipeline.from_pretrained(
                     "pyannote/speaker-diarization-3.1",
@@ -428,7 +437,7 @@ def get_diarization_pipeline():
     return diarization_pipeline
 
 
-def load_waveform(audio_path):
+def load_waveform(audio_path: str) -> dict:
     """
     Load a mono PCM WAV file into a pyannote-compatible waveform dict.
 
@@ -451,7 +460,9 @@ def load_waveform(audio_path):
     return {"waveform": waveform, "sample_rate": sample_rate}
 
 
-def diarize_audio(audio_path, progress_callback=None):
+def diarize_audio(
+    audio_path: str, progress_callback: "Callable | None" = None
+) -> list[tuple[float, float, str]] | None:
     """
     Return a list of (start, end, raw_speaker_label) turns, or None if unavailable.
 
@@ -480,7 +491,7 @@ def diarize_audio(audio_path, progress_callback=None):
     try:
         pipeline = get_diarization_pipeline()
 
-        hook = None
+        hook: Callable[..., None] | None = None
         if progress_callback is not None:
             last_reported = {"percent": -1, "time": 0.0}
 
@@ -552,7 +563,7 @@ def diarize_audio(audio_path, progress_callback=None):
             os.remove(denoised_path)
 
 
-def assign_speakers(words, turns):
+def assign_speakers(words: list[dict], turns: list[tuple[float, float, str]]) -> int:
     """
     Tag each word dict in-place with a 0-based "spk" index and return the
     number of distinct speakers, based on diarization turns.
@@ -596,7 +607,7 @@ VAD_HOP_SECONDS = 0.01
 VAD_SILENCE_MARGIN = 0.15
 
 
-def _read_wav_samples(wav_path):
+def _read_wav_samples(wav_path: str) -> tuple[np.ndarray | None, int | None]:
     """
     Read a PCM WAV file into an int16 numpy array and its sample rate.
 
@@ -626,7 +637,9 @@ def _read_wav_samples(wav_path):
     return samples, sample_rate
 
 
-def _detect_speech_bounds(samples, sample_rate):
+def _detect_speech_bounds(
+    samples: np.ndarray, sample_rate: int
+) -> tuple[float, float] | None:
     """
     Return the first and last speech timestamps in an int16 sample array.
 
@@ -688,7 +701,7 @@ def _detect_speech_bounds(samples, sample_rate):
     return start, end
 
 
-def _trim_wav(wav_path, start, end):
+def _trim_wav(wav_path: str, start: float, end: float) -> str | None:
     """
     Trim a PCM WAV to the [start, end] second range with ffmpeg.
 
@@ -731,7 +744,9 @@ def _trim_wav(wav_path, start, end):
     return out_path
 
 
-def apply_silence_trimming(audio_path, remove_source=False):
+def apply_silence_trimming(
+    audio_path: str, remove_source: bool = False
+) -> tuple[str, float, bool]:
     """
     Trim leading and trailing silence from a 16 kHz mono PCM WAV using a
     lightweight energy-based voice-activity detector.

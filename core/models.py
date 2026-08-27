@@ -6,13 +6,13 @@ Database models for the Flask app.
 
 # Import required modules
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Import the database instance and config constants
 from core.extensions import db
 from core.config import TRANSCRIPTION_PENDING, KEY_POINTS_PENDING, DEFAULT_UNIT
 
-SPEAKER_COLOR_PALETTE = [
+SPEAKER_COLOR_PALETTE: list[str] = [
     "#4c78a8",
     "#f58518",
     "#54a24b",
@@ -68,7 +68,7 @@ class Note(db.Model):
         backref="note",
     )
 
-    def speakers_by_order(self):
+    def speakers_by_order(self) -> dict[int, "Speaker"]:
         """
         Return the note's speakers keyed by their order index.
 
@@ -101,7 +101,7 @@ class RecordingSession(db.Model):
     note_id = db.Column(db.Integer, db.ForeignKey("note.id"), nullable=True)
     note = db.relationship("Note", backref="recording_session", uselist=False)
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
         """
         Convert the recording session to a serializable dictionary.
 
@@ -138,7 +138,21 @@ class Speaker(db.Model):
     display_name = db.Column(db.String(100), nullable=True)
     color = db.Column(db.String(7), nullable=False)
 
-    def to_dict(self):
+    def __init__(
+        self,
+        note_id: int,
+        order_index: int,
+        label: str,
+        color: str,
+        **kwargs: object,
+    ) -> None:
+        self.note_id = note_id
+        self.order_index = order_index
+        self.label = label
+        self.color = color
+        super().__init__(**kwargs)
+
+    def to_dict(self) -> dict:
         """
         Convert the speaker to a serializable dictionary.
 
@@ -169,7 +183,7 @@ class Subject(db.Model):
         backref="subject",
     )
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
         """
         Convert the subject to a serializable dictionary.
 
@@ -190,7 +204,7 @@ class Unit(db.Model):
     subject_id = db.Column(db.Integer, db.ForeignKey("subject.id"), nullable=False)
     __table_args__ = (db.UniqueConstraint("subject_id", "name"),)
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
         """
         Convert the unit to a serializable dictionary.
 
@@ -226,12 +240,14 @@ class ChatSession(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(200), nullable=True)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
     updated_at = db.Column(
         db.DateTime,
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
     notes = db.relationship(
@@ -260,7 +276,9 @@ class ChatMessage(db.Model):
 
     role = db.Column(db.String(20), nullable=False)
     content = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
 
 
 class Tag(db.Model):
@@ -274,7 +292,7 @@ class Tag(db.Model):
     parent_id = db.Column(db.Integer, db.ForeignKey("tag.id"), nullable=True)
     parent = db.relationship("Tag", remote_side=[id], backref="children")
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
         """
         Convert the tag to a serializable dictionary.
 
@@ -290,7 +308,7 @@ class Tag(db.Model):
         }
 
 
-def get_tag_descendant_ids(root_ids):
+def get_tag_descendant_ids(root_ids: list[int]) -> set[int]:
     """
     Return root_ids plus all descendant tag ids.
 

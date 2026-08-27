@@ -9,8 +9,8 @@ application, including bulk deletion, subject updates, tagging, and export.
 import io
 import os
 import zipfile
-from datetime import datetime
-from flask import request, jsonify, send_file
+from datetime import datetime, timezone
+from flask import Response, request, jsonify, send_file
 
 # Import core extensions, models, and config
 from core.extensions import app, db
@@ -27,7 +27,7 @@ from services.text_filters import (
 )
 
 
-def parse_bulk_note_ids(data):
+def parse_bulk_note_ids(data: dict) -> list[int]:
     """
     Parse and deduplicate a list of note ids from a request JSON payload.
 
@@ -48,7 +48,7 @@ def parse_bulk_note_ids(data):
     return note_ids
 
 
-def unique_zip_foldername(base, used_names):
+def unique_zip_foldername(base: str, used_names: set[str]) -> str:
     """
     Return a folder name based on base that has not been used in a zip yet.
 
@@ -73,7 +73,7 @@ def unique_zip_foldername(base, used_names):
 
 
 @app.route("/api/notes/bulk_delete", methods=["POST"])
-def bulk_delete_notes():
+def bulk_delete_notes() -> Response:
     """
     Delete multiple notes and their recording files at once.
 
@@ -107,7 +107,7 @@ def bulk_delete_notes():
 
 
 @app.route("/api/notes/bulk_subject", methods=["POST"])
-def bulk_update_subjects():
+def bulk_update_subjects() -> Response:
     """
     Change the subject of multiple notes at once.
 
@@ -139,7 +139,7 @@ def bulk_update_subjects():
 
 
 @app.route("/api/notes/bulk_add_tag", methods=["POST"])
-def bulk_add_tag():
+def bulk_add_tag() -> Response:
     """
     Add one tag to multiple notes, preserving each note's existing tags.
 
@@ -178,7 +178,7 @@ def bulk_add_tag():
 
 
 @app.route("/api/notes/bulk_export", methods=["POST"])
-def bulk_export_notes():
+def bulk_export_notes() -> Response:
     """
     Export multiple notes as a zip of their recording files, transcripts,
     key points, and rich-note text.
@@ -248,7 +248,9 @@ def bulk_export_notes():
             zip_file.writestr("summary.txt", "\n\n---\n\n".join(summary_lines))
 
     buffer.seek(0)
-    filename = f"notes_export_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.zip"
+    filename = (
+        f"notes_export_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.zip"
+    )
     return send_file(
         buffer,
         mimetype="application/zip",

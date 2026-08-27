@@ -10,7 +10,7 @@ metadata updates.
 import os
 import re
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from flask import (
     render_template,
     request,
@@ -55,7 +55,7 @@ from audio.transcription import (
 from audio.key_points import reset_key_points_offline_retries
 
 
-def units_by_subject_map():
+def units_by_subject_map() -> dict[str, list[str]]:
     """
     Build a mapping of subject names to their unit names, ordered by name.
 
@@ -71,7 +71,7 @@ def units_by_subject_map():
 
 
 @app.route("/")
-def index():
+def index() -> str:
     """
     Render the notes index page with optional filters.
 
@@ -118,7 +118,7 @@ def index():
 
 
 @app.route("/api/notes")
-def api_notes():
+def api_notes() -> Response:
     """
     Return a paginated, filtered notes list as JSON.
 
@@ -172,7 +172,7 @@ def api_notes():
 
 
 @app.route("/api/notes/ids")
-def api_notes_ids():
+def api_notes_ids() -> Response:
     """
     Return the ids of all notes matching the current filters, for bulk selection.
 
@@ -186,7 +186,7 @@ def api_notes_ids():
 
 
 @app.route("/api/note_images", methods=["POST"])
-def upload_note_image():
+def upload_note_image() -> Response:
     """
     Upload an image to be embedded in a note.
 
@@ -204,13 +204,13 @@ def upload_note_image():
 
     os.makedirs(NOTE_IMAGES_DIR, exist_ok=True)
     safe_name = secure_filename(image_file.filename.rsplit(".", 1)[0]) or "image"
-    filename = f"{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{safe_name}_{uuid.uuid4().hex}.{extension}"
+    filename = f"{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{safe_name}_{uuid.uuid4().hex}.{extension}"
     image_file.save(os.path.join(NOTE_IMAGES_DIR, filename))
     return jsonify({"url": url_for("note_image_file", filename=filename)})
 
 
 @app.route("/download_transcript/<int:note_id>")
-def download_transcript(note_id):
+def download_transcript(note_id: int) -> Response:
     """
     Download a note's transcript as a text file.
 
@@ -233,7 +233,7 @@ def download_transcript(note_id):
 
 
 @app.route("/download_key_points/<int:note_id>")
-def download_key_points(note_id):
+def download_key_points(note_id: int) -> Response:
     """
     Download a note's key points as a markdown file.
 
@@ -258,7 +258,7 @@ def download_key_points(note_id):
 
 
 @app.route("/notes/<int:note_id>/tags", methods=["POST"])
-def set_note_tags(note_id):
+def set_note_tags(note_id: int) -> Response:
     """
     Set the tags assigned to a note.
 
@@ -285,7 +285,7 @@ def set_note_tags(note_id):
 
 
 @app.route("/notes/<int:note_id>/subject", methods=["POST"])
-def update_note_subject(note_id):
+def update_note_subject(note_id: int) -> Response:
     """
     Update a note's subject and unit.
 
@@ -320,7 +320,7 @@ def update_note_subject(note_id):
 
 
 @app.route("/notes/<int:note_id>/pin", methods=["POST"])
-def toggle_note_pin(note_id):
+def toggle_note_pin(note_id: int) -> Response:
     """
     Toggle whether a note is pinned to the top of the recordings list.
 
@@ -336,7 +336,7 @@ def toggle_note_pin(note_id):
     return jsonify({"id": note.id, "pinned": note.pinned})
 
 
-def parse_note_date(value):
+def parse_note_date(value: str) -> "datetime.date | None":
     """
     Parse a date string into a date object.
 
@@ -353,7 +353,7 @@ def parse_note_date(value):
         return None
 
 
-def parse_note_time(value):
+def parse_note_time(value: str | None) -> "datetime.time | None":
     """
     Parse a time string into a time object, accepting HH:MM or HH:MM:SS.
 
@@ -375,7 +375,7 @@ def parse_note_time(value):
 
 
 @app.route("/notes/<int:note_id>/datetime", methods=["POST"])
-def update_note_datetime(note_id):
+def update_note_datetime(note_id: int) -> Response:
     """
     Update a note's date and start time, preserving its duration.
 
@@ -415,7 +415,7 @@ def update_note_datetime(note_id):
 
 
 @app.route("/notes/<int:note_id>/speakers/<int:speaker_id>/rename", methods=["POST"])
-def rename_speaker(note_id, speaker_id):
+def rename_speaker(note_id: int, speaker_id: int) -> Response:
     """
     Rename a speaker of a note.
 
@@ -440,7 +440,7 @@ def rename_speaker(note_id, speaker_id):
 
 
 @app.route("/notes/<int:note_id>/retry_transcription", methods=["POST"])
-def retry_transcription(note_id):
+def retry_transcription(note_id: int) -> Response:
     """
     Reset a note's transcription status and re-enqueue it.
 
@@ -469,7 +469,7 @@ def retry_transcription(note_id):
 
 
 @app.route("/notes/<int:note_id>/retry_key_points", methods=["POST"])
-def retry_key_points(note_id):
+def retry_key_points(note_id: int) -> Response:
     """
     Reset a note's key points status and re-enqueue extraction.
 
@@ -498,7 +498,7 @@ def retry_key_points(note_id):
 
 
 @app.route("/notes/<int:note_id>/notes", methods=["POST"])
-def update_note_rich_notes(note_id):
+def update_note_rich_notes(note_id: int) -> Response:
     """
     Update a note's rich notes HTML and regenerate key points if ready.
 
@@ -549,7 +549,7 @@ def update_note_rich_notes(note_id):
 
 
 @app.route("/update_note/<int:note_id>", methods=["POST"])
-def update_note(note_id):
+def update_note(note_id: int) -> Response:
     """
     Update a note's title and key points.
 
@@ -571,7 +571,7 @@ def update_note(note_id):
 
 
 @app.route("/delete/<int:note_id>", methods=["POST"])
-def delete_note(note_id):
+def delete_note(note_id: int) -> Response:
     """
     Delete a note and its recording file.
 

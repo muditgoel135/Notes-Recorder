@@ -33,7 +33,7 @@ from services.text_filters import sanitize_rich_note_html
 class _VideoEmbedParser(HTMLParser):
     """HTML parser that collects iframe embeds and their attributes."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Initialize the parser with an empty embeds list.
 
@@ -42,9 +42,9 @@ class _VideoEmbedParser(HTMLParser):
         """
 
         super().__init__()
-        self.embeds = []
+        self.embeds: list[dict] = []
 
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         """
         Collect the src and title of each iframe embed.
 
@@ -69,7 +69,7 @@ class _VideoEmbedParser(HTMLParser):
             )
 
 
-def extract_video_embeds(html):
+def extract_video_embeds(html: str | None) -> list[dict]:
     """
     Extract YouTube/Vimeo embeds from sanitized rich note HTML.
 
@@ -98,7 +98,7 @@ def extract_video_embeds(html):
     return embeds
 
 
-def _embed_id_from_src(src):
+def _embed_id_from_src(src: str) -> tuple[str | None, str | None]:
     """
     Parse an embed src URL into a host and video id.
 
@@ -127,7 +127,7 @@ def _embed_id_from_src(src):
     return None, None
 
 
-def _download_url_for(host, video_id):
+def _download_url_for(host: str, video_id: str) -> str:
     """
     Build a watchable download URL for a known host and video id.
 
@@ -148,7 +148,7 @@ def _download_url_for(host, video_id):
     return ""
 
 
-def parse_video_transcriptions(value):
+def parse_video_transcriptions(value: str | None) -> dict:
     """
     Parse the note's stored per-video transcription JSON into a dict.
 
@@ -164,7 +164,7 @@ def parse_video_transcriptions(value):
     return data if isinstance(data, dict) else {}
 
 
-def format_video_transcripts(note):
+def format_video_transcripts(note: "Note") -> str:
     """
     Render the note's embedded video transcripts as readable text.
 
@@ -193,7 +193,7 @@ def format_video_transcripts(note):
     return "\n\n".join(sections)
 
 
-def process_video_embeds(note):
+def process_video_embeds(note: "Note") -> list[str]:
     """
     Download and transcribe each video embedded in the note's rich HTML.
 
@@ -249,7 +249,7 @@ def process_video_embeds(note):
     return images
 
 
-def collect_video_embed_images(notes):
+def collect_video_embed_images(notes: list) -> list[str]:
     """
     Collect base64 keyframes already cached for the given notes' video embeds.
 
@@ -279,7 +279,7 @@ def collect_video_embed_images(notes):
     return images
 
 
-def _process_embed(embed, cache_dir, note):
+def _process_embed(embed: dict, cache_dir: str, note: "Note") -> tuple[str, str]:
     """
     Download, transcribe, and extract keyframes for a single video embed.
 
@@ -305,7 +305,7 @@ def _process_embed(embed, cache_dir, note):
     return transcript, title or embed["title"]
 
 
-def _download_video(embed, cache_dir):
+def _download_video(embed: dict, cache_dir: str) -> tuple[str, str]:
     """
     Download a video to the cache dir, reusing an existing download.
 
@@ -345,7 +345,7 @@ def _download_video(embed, cache_dir):
     return video_path, title
 
 
-def _find_downloaded_video(cache_dir):
+def _find_downloaded_video(cache_dir: str) -> str | None:
     """
     Find the largest cached video file in the given directory.
 
@@ -367,7 +367,7 @@ def _find_downloaded_video(cache_dir):
     return max(candidates, key=os.path.getsize) if candidates else None
 
 
-def _write_cache_json(cache_dir, data):
+def _write_cache_json(cache_dir: str, data: dict) -> None:
     """
     Write metadata for a cached video, ignoring write failures.
 
@@ -387,7 +387,7 @@ def _write_cache_json(cache_dir, data):
         pass
 
 
-def _cached_title(cache_dir, embed):
+def _cached_title(cache_dir: str, embed: dict) -> str:
     """
     Return the cached video title, falling back to the embed title.
 
@@ -407,7 +407,7 @@ def _cached_title(cache_dir, embed):
         return embed["title"]
 
 
-def _extract_audio(video_path, cache_dir):
+def _extract_audio(video_path: str, cache_dir: str) -> str:
     """
     Extract a mono 16kHz WAV track from a video using ffmpeg.
 
@@ -448,7 +448,7 @@ def _extract_audio(video_path, cache_dir):
     return audio_path
 
 
-def _extract_keyframes(video_path, cache_dir, count):
+def _extract_keyframes(video_path: str, cache_dir: str, count: int) -> list[str]:
     """
     Extract up to count keyframe images from a video.
 
@@ -543,7 +543,7 @@ def _extract_keyframes(video_path, cache_dir, count):
     return _collect_frame_paths(cache_dir)
 
 
-def _collect_frame_paths(cache_dir):
+def _collect_frame_paths(cache_dir: str) -> list[str]:
     """
     List cached keyframe image paths in sorted order.
 
@@ -556,7 +556,7 @@ def _collect_frame_paths(cache_dir):
     return sorted(glob.glob(os.path.join(cache_dir, "frames", "frame_*.jpg")))
 
 
-def _probe_duration(video_path):
+def _probe_duration(video_path: str) -> float | None:
     """
     Probe a video's duration in seconds with ffprobe.
 
@@ -588,7 +588,7 @@ def _probe_duration(video_path):
         return None
 
 
-def _encode_image(path):
+def _encode_image(path: str) -> str | None:
     """
     Encode an image file as a base64 string for Ollama.
 
@@ -605,7 +605,7 @@ def _encode_image(path):
         return None
 
 
-def _transcribe_audio(audio_path, note):
+def _transcribe_audio(audio_path: str, note: "Note") -> str:
     """
     Transcribe an audio file with Whisper and return the text.
 
@@ -639,7 +639,7 @@ def _transcribe_audio(audio_path, note):
     return (result.get("text") or "").strip()
 
 
-def _merge_video_transcript(note, title, transcript):
+def _merge_video_transcript(note: "Note", title: str, transcript: str) -> None:
     """
     Append a video transcript to a note's transcription text.
 
@@ -670,7 +670,7 @@ def _merge_video_transcript(note, title, transcript):
     )
 
 
-def _cleanup_media(video_path, audio_path):
+def _cleanup_media(video_path: str, audio_path: str) -> None:
     """
     Best-effort removal of temporary video and audio files.
 

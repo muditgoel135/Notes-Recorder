@@ -7,7 +7,7 @@ Notes-Recorder application.
 
 # Import required modules
 import re
-from flask import request, jsonify
+from flask import Response, request, jsonify
 
 # Import core extensions and models
 from core.extensions import app, db
@@ -15,7 +15,7 @@ from core.models import Subject, Unit, Tag, get_tag_descendant_ids
 
 
 @app.route("/api/subjects")
-def api_subjects():
+def api_subjects() -> Response:
     """
     List all subjects ordered by name.
 
@@ -28,7 +28,7 @@ def api_subjects():
 
 
 @app.route("/api/subjects", methods=["POST"])
-def create_subject():
+def create_subject() -> Response:
     """
     Create a new subject.
 
@@ -52,7 +52,7 @@ def create_subject():
 
 
 @app.route("/api/subjects/<int:subject_id>/delete", methods=["POST"])
-def delete_subject(subject_id):
+def delete_subject(subject_id: int) -> Response:
     """
     Delete a subject.
 
@@ -69,7 +69,7 @@ def delete_subject(subject_id):
 
 
 @app.route("/api/units")
-def api_units():
+def api_units() -> Response:
     """
     List all units ordered by subject and unit name.
 
@@ -82,7 +82,7 @@ def api_units():
 
 
 @app.route("/api/units", methods=["POST"])
-def create_unit():
+def create_unit() -> Response:
     """
     Create a new unit under a subject.
 
@@ -111,7 +111,7 @@ def create_unit():
 
 
 @app.route("/api/units/<int:unit_id>/delete", methods=["POST"])
-def delete_unit(unit_id):
+def delete_unit(unit_id: int) -> Response:
     """
     Delete a unit.
 
@@ -128,7 +128,7 @@ def delete_unit(unit_id):
 
 
 @app.route("/api/tags")
-def api_tags():
+def api_tags() -> Response:
     """
     List all tags ordered by name.
 
@@ -141,7 +141,7 @@ def api_tags():
 
 
 @app.route("/api/tags", methods=["POST"])
-def create_tag():
+def create_tag() -> Response:
     """
     Create a new tag, optionally nested under a parent tag.
 
@@ -170,7 +170,7 @@ def create_tag():
 
 
 @app.route("/api/tags/<int:tag_id>", methods=["POST"])
-def update_tag(tag_id):
+def update_tag(tag_id: int) -> Response:
     """
     Update a tag's name and color.
 
@@ -195,7 +195,7 @@ def update_tag(tag_id):
 
 
 @app.route("/api/tags/<int:tag_id>/delete", methods=["POST"])
-def delete_tag(tag_id):
+def delete_tag(tag_id: int) -> Response:
     """
     Delete a tag and all of its descendant tags.
 

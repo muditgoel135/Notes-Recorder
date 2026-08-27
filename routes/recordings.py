@@ -7,7 +7,7 @@ routes for the Notes-Recorder application.
 
 # Import required modules
 import json
-from flask import request, jsonify, redirect, url_for, send_from_directory
+from flask import Response, request, jsonify, redirect, url_for, send_from_directory
 
 # Import core extensions and config
 from core.extensions import app, db
@@ -28,7 +28,7 @@ from audio.recordings import (
 
 
 @app.route("/save_recording", methods=["POST"])
-def save_recording():
+def save_recording() -> Response:
     """
     Save an uploaded audio file and create a note for it.
 
@@ -52,7 +52,7 @@ def save_recording():
 
 
 @app.route("/api/recording_sessions", methods=["POST"])
-def create_recording_session_route():
+def create_recording_session_route() -> Response:
     """
     Create a new recording session from the request payload.
 
@@ -77,7 +77,7 @@ def create_recording_session_route():
 
 
 @app.route("/api/recording_sessions/<session_key>")
-def get_recording_session_route(session_key):
+def get_recording_session_route(session_key: str) -> Response:
     """
     Return a recording session by its session key.
 
@@ -95,7 +95,7 @@ def get_recording_session_route(session_key):
 
 
 @app.route("/api/recording_sessions/<session_key>/notes", methods=["PATCH"])
-def update_recording_session_notes(session_key):
+def update_recording_session_notes(session_key: str) -> Response:
     """
     Update the rich notes HTML of an active recording session.
 
@@ -119,7 +119,7 @@ def update_recording_session_notes(session_key):
 
 
 @app.route("/api/recording_sessions/<session_key>/chunks", methods=["POST"])
-def save_recording_chunk_route(session_key):
+def save_recording_chunk_route(session_key: str) -> Response:
     """
     Save an uploaded audio chunk for a recording session.
 
@@ -155,7 +155,7 @@ def save_recording_chunk_route(session_key):
 
 
 @app.route("/api/recording_sessions/<session_key>/bookmarks", methods=["PATCH"])
-def update_recording_session_bookmarks(session_key):
+def update_recording_session_bookmarks(session_key: str) -> Response:
     """
     Update the timestamp bookmarks of an active recording session.
 
@@ -195,7 +195,7 @@ def update_recording_session_bookmarks(session_key):
 
 
 @app.route("/api/recording_sessions/<session_key>/finish", methods=["POST"])
-def finish_recording_session_route(session_key):
+def finish_recording_session_route(session_key: str) -> Response:
     """
     Finalize a recording session and create the resulting note.
 
@@ -228,7 +228,7 @@ def finish_recording_session_route(session_key):
 
 
 @app.route("/api/recording_sessions/<session_key>/cancel", methods=["POST"])
-def cancel_recording_session_route(session_key):
+def cancel_recording_session_route(session_key: str) -> Response:
     """
     Cancel an active recording session.
 
@@ -252,7 +252,7 @@ def cancel_recording_session_route(session_key):
 
 
 @app.route("/upload", methods=["POST"])
-def upload():
+def upload() -> Response:
     """
     Handle a legacy upload form for an audio file.
 
@@ -272,7 +272,7 @@ def upload():
 
 
 @app.route("/recordings/<path:filename>")
-def recording_file(filename):
+def recording_file(filename: str) -> Response:
     """
     Serve a stored recording file.
 
@@ -286,7 +286,7 @@ def recording_file(filename):
 
 
 @app.route("/recordings/note_images/<path:filename>")
-def note_image_file(filename):
+def note_image_file(filename: str) -> Response:
     """
     Serve a stored note image file.
 

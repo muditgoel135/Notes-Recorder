@@ -15,6 +15,7 @@ existing import paths keep working.
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor
+from typing import Any
 
 # Import core extensions and models
 from core.extensions import app, db
@@ -66,10 +67,10 @@ from audio.key_points import (
 # Import video embed helpers for key points extraction
 from services.video_embeds import extract_video_embeds
 
-transcription_executor = ThreadPoolExecutor(max_workers=1)
+transcription_executor: ThreadPoolExecutor = ThreadPoolExecutor(max_workers=1)
 
 
-def transcribe_note(note_id, audio_path):
+def transcribe_note(note_id: int, audio_path: str) -> None:
     """
     Transcribe an audio file for a note and extract key points.
 
@@ -103,7 +104,7 @@ def transcribe_note(note_id, audio_path):
 
             words = []
             if has_speech:
-                transcribe_kwargs = {
+                transcribe_kwargs: dict[str, Any] = {
                     "fp16": False,
                     "word_timestamps": True,
                     "verbose": False,
@@ -122,7 +123,7 @@ def transcribe_note(note_id, audio_path):
                     transcribe_kwargs["language"] = "en"
 
                 with track_whisper_progress(note_id):
-                    result = get_whisper_model().transcribe(
+                    result: dict[str, Any] = get_whisper_model().transcribe(
                         processed_path, **transcribe_kwargs
                     )
 
@@ -206,7 +207,7 @@ def transcribe_note(note_id, audio_path):
             extract_key_points(note_id, transcription, generation)
 
 
-def enqueue_transcription(note_id, audio_path):
+def enqueue_transcription(note_id: int, audio_path: str) -> None:
     """
     Schedule a note for transcription on the background executor.
 
@@ -221,7 +222,7 @@ def enqueue_transcription(note_id, audio_path):
     transcription_executor.submit(transcribe_note, note_id, audio_path)
 
 
-def enqueue_existing_transcriptions():
+def enqueue_existing_transcriptions() -> None:
     """
     Re-enqueue transcription for notes stuck in a pending or processing state.
 
@@ -252,7 +253,7 @@ def enqueue_existing_transcriptions():
     db.session.commit()
 
 
-def enqueue_existing_key_points():
+def enqueue_existing_key_points() -> None:
     """
     Re-enqueue key point extraction for completed notes still pending.
 

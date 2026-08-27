@@ -16,8 +16,8 @@ from markupsafe import Markup, escape
 import bleach
 from bleach.css_sanitizer import CSSSanitizer
 
-LIST_ITEM_RE = re.compile(r"^([ \t]*)([-*+]|\d+\.)\s+")
-ALLOWED_RICH_NOTE_TAGS = [
+LIST_ITEM_RE: "re.Pattern[str]" = re.compile(r"^([ \t]*)([-*+]|\d+\.)\s+")
+ALLOWED_RICH_NOTE_TAGS: list[str] = [
     "a",
     "b",
     "blockquote",
@@ -57,7 +57,7 @@ ALLOWED_RICH_NOTE_TAGS = [
     "u",
     "ul",
 ]
-ALLOWED_MARKDOWN_TAGS = [
+ALLOWED_MARKDOWN_TAGS: list[str] = [
     "a",
     "blockquote",
     "br",
@@ -84,12 +84,12 @@ ALLOWED_MARKDOWN_TAGS = [
     "tr",
     "ul",
 ]
-ALLOWED_MARKDOWN_ATTRIBUTES = {
+ALLOWED_MARKDOWN_ATTRIBUTES: dict[str, list[str]] = {
     "a": ["href", "title"],
     "img": ["src", "alt", "title"],
 }
 
-ALLOWED_RICH_NOTE_ATTRIBUTES = {
+ALLOWED_RICH_NOTE_ATTRIBUTES: dict[str, list[str]] = {
     "*": ["style", "class", "dir"],
     "a": ["href", "title", "target", "rel"],
     "iframe": [
@@ -109,8 +109,8 @@ ALLOWED_RICH_NOTE_ATTRIBUTES = {
     "span": ["style", "class", "data-latex", "contenteditable", "title", "id"],
 }
 
-ALLOWED_RICH_NOTE_PROTOCOLS = ["http", "https", "mailto", "data"]
-ALLOWED_IMAGE_DATA_RE = re.compile(
+ALLOWED_RICH_NOTE_PROTOCOLS: list[str] = ["http", "https", "mailto", "data"]
+ALLOWED_IMAGE_DATA_RE: "re.Pattern[str]" = re.compile(
     r"^data:image/(png|jpe?g|gif|webp);base64,[a-z0-9+/=\s]+$",
     re.IGNORECASE,
 )
@@ -132,7 +132,7 @@ RICH_NOTE_CSS_SANITIZER = CSSSanitizer(
     ]
 )
 
-ALLOWED_VIDEO_EMBED_HOSTS = {
+ALLOWED_VIDEO_EMBED_HOSTS: set[str] = {
     "www.youtube-nocookie.com",
     "youtube-nocookie.com",
     "www.youtube.com",
@@ -146,7 +146,7 @@ class RichNoteTextParser(HTMLParser):
     HTML parser that converts rich note HTML into plain text.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Initialize the parser with empty output parts.
 
@@ -155,10 +155,10 @@ class RichNoteTextParser(HTMLParser):
         """
 
         super().__init__()
-        self.parts = []
-        self.skip_math_depth = 0
+        self.parts: list[str] = []
+        self.skip_math_depth: int = 0
 
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         """
         Handle the start of an HTML tag, appending text separators or markers.
 
@@ -205,7 +205,7 @@ class RichNoteTextParser(HTMLParser):
                 self.parts.append(f" ${latex}$ ")
                 self.skip_math_depth = 1
 
-    def handle_endtag(self, tag):
+    def handle_endtag(self, tag: str) -> None:
         """
         Handle the end of an HTML tag, unwinding math-field skipping.
 
@@ -217,7 +217,7 @@ class RichNoteTextParser(HTMLParser):
         if self.skip_math_depth:
             self.skip_math_depth -= 1
 
-    def handle_data(self, data):
+    def handle_data(self, data: str) -> None:
         """
         Append text data unless inside a skipped math-field span.
 
@@ -230,7 +230,7 @@ class RichNoteTextParser(HTMLParser):
             return
         self.parts.append(data)
 
-    def get_text(self):
+    def get_text(self) -> str:
         """
         Build and clean the collected plain text.
 
@@ -244,7 +244,7 @@ class RichNoteTextParser(HTMLParser):
         return "\n".join(line for line in lines if line).strip()
 
 
-def normalize_list_indentation(text):
+def normalize_list_indentation(text: str) -> str:
     """
     Clamp list-item indentation to what's reachable via preceding items.
 
@@ -288,7 +288,7 @@ def normalize_list_indentation(text):
     return "\n".join(lines)
 
 
-def render_markdown(text):
+def render_markdown(text: str) -> "Markup | str":
     """
     Render markdown text to safe HTML.
 
@@ -323,7 +323,7 @@ def render_markdown(text):
     return Markup(cleaned)
 
 
-def sanitize_rich_note_html(html):
+def sanitize_rich_note_html(html: str | None) -> str | None:
     """
     Sanitize HTML content for rich notes, removing unsafe tags and attributes.
 
@@ -364,7 +364,7 @@ def sanitize_rich_note_html(html):
     return cleaned.strip() or None
 
 
-def allow_rich_note_attribute(tag, name, value):
+def allow_rich_note_attribute(tag: str, name: str, value: str) -> bool:
     """
     Callback function for bleach.clean to determine if a specific attribute
     is allowed for a given HTML tag.
@@ -406,7 +406,7 @@ def allow_rich_note_attribute(tag, name, value):
     return True
 
 
-def keep_allowed_iframe(match):
+def keep_allowed_iframe(match: "re.Match[str]") -> str:
     """
     Keep an iframe match only if its src is an allowed video embed.
 
@@ -428,7 +428,7 @@ def keep_allowed_iframe(match):
     return match.group(0)
 
 
-def is_allowed_video_embed_src(value):
+def is_allowed_video_embed_src(value: str) -> bool:
     """
     Check whether a URL is an allowed YouTube or Vimeo embed source.
 
@@ -453,7 +453,7 @@ def is_allowed_video_embed_src(value):
     return False
 
 
-def set_link_attrs(attrs, new=False):
+def set_link_attrs(attrs: dict, new: bool = False) -> dict:
     """
     Add target and rel attributes to a linkified anchor.
 
@@ -472,7 +472,7 @@ def set_link_attrs(attrs, new=False):
     return attrs
 
 
-def render_rich_note_html(html):
+def render_rich_note_html(html: str) -> "Markup":
     """
     Sanitize rich note HTML and return it as a safe Markup object.
 
@@ -485,7 +485,7 @@ def render_rich_note_html(html):
     return Markup(sanitize_rich_note_html(html) or "")
 
 
-def rich_note_html_to_text(html):
+def rich_note_html_to_text(html: str | None) -> str:
     """
     Convert rich note HTML into plain text.
 
@@ -500,7 +500,7 @@ def rich_note_html_to_text(html):
     return parser.get_text()
 
 
-def format_display_date(value):
+def format_display_date(value: str | None) -> str | None:
     """
     Format a YYYY-MM-DD date string for display as DD/MM/YYYY.
 
@@ -520,7 +520,7 @@ def format_display_date(value):
         return value
 
 
-def format_display_time(value):
+def format_display_time(value: str | None) -> str | None:
     """
     Format an HH:MM[:SS] time string for display in 12-hour form.
 
@@ -544,7 +544,7 @@ def format_display_time(value):
     return f"{hour12}:{minute:02d} {period}"
 
 
-def parse_json(value):
+def parse_json(value: str | None) -> list:
     """
     Parse a JSON string into a list, defaulting to an empty list.
 

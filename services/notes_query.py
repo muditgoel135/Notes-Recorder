@@ -72,7 +72,7 @@ STATUS_RANK = {
 }
 
 
-def _status_rank_expression(column):
+def _status_rank_expression(column: "sqlalchemy.Column") -> "sqlalchemy.Case":
     """
     Build a SQL CASE expression ranking a note status column.
 
@@ -88,7 +88,7 @@ def _status_rank_expression(column):
     return db.case(STATUS_RANK, value=column, else_=99)
 
 
-def init_database():
+def init_database() -> None:
     """
     Initializes the database by creating all tables, seeding default subjects,
     and performing necessary schema migrations for the Note and recording_session tables.
@@ -182,18 +182,18 @@ def init_database():
 
 
 def build_notes_query(
-    search=None,
-    date_from=None,
-    date_to=None,
-    time_from=None,
-    time_to=None,
-    tag_ids=None,
-    subjects=None,
-    units=None,
-    transcription_statuses=None,
-    key_points_statuses=None,
-    empty_notes=False,
-    sort=None,
+    search: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    time_from: str | None = None,
+    time_to: str | None = None,
+    tag_ids: list[int] | None = None,
+    subjects: list[str] | None = None,
+    units: list[tuple[str, str]] | None = None,
+    transcription_statuses: list[str] | None = None,
+    key_points_statuses: list[str] | None = None,
+    empty_notes: bool = False,
+    sort: str | None = None,
 ):
     """
     Builds a SQLAlchemy query to retrieve notes based on search terms and filters.
@@ -332,7 +332,7 @@ def build_notes_query(
     )
 
 
-def parse_notes_filters_from_request():
+def parse_notes_filters_from_request() -> dict:
     """
     Parses notes filtering criteria from the current Flask request arguments.
 
@@ -396,7 +396,7 @@ def parse_notes_filters_from_request():
     }
 
 
-def check_has_active_transcription():
+def check_has_active_transcription() -> bool:
     """
     Checks if there are any notes currently awaiting or undergoing transcription or key point generation.
 

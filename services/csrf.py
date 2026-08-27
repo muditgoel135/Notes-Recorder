@@ -6,12 +6,12 @@ CSRF protection helpers for state-changing routes.
 
 # Import required modules
 from urllib.parse import urlparse
-from flask import jsonify, request
+from flask import Response, jsonify, request
 
-STATE_CHANGING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+STATE_CHANGING_METHODS: frozenset[str] = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 
-def is_same_origin(url):
+def is_same_origin(url: str) -> bool:
     """
     Whether a URL's scheme and host match the current request's host.
 
@@ -25,7 +25,7 @@ def is_same_origin(url):
     return bool(parsed.scheme and parsed.netloc) and parsed.netloc == request.host
 
 
-def reject_cross_origin_state_changes():
+def reject_cross_origin_state_changes() -> Response | None:
     """
     Reject state-changing requests that arrive from another origin.
 

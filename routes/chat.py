@@ -7,9 +7,9 @@ conversation endpoint.
 """
 
 # Import required modules
-from datetime import datetime
+from datetime import datetime, timezone
 import requests
-from flask import render_template, request, jsonify
+from flask import render_template, request, jsonify, Response
 
 # Import core extensions and models
 from core.extensions import app, db
@@ -43,7 +43,7 @@ from audio.transcription import (
 )
 
 
-def serialize_chat_note(note, include_preview=True):
+def serialize_chat_note(note: "Note", include_preview: bool = True) -> dict:
     """
     Serialize a Note into a dict for the chat API.
 
@@ -83,7 +83,7 @@ def serialize_chat_note(note, include_preview=True):
     return data
 
 
-def serialize_chat_message(message):
+def serialize_chat_message(message: "ChatMessage") -> dict:
     """
     Serialize a ChatMessage into a dict for the chat API.
 
@@ -108,7 +108,9 @@ def serialize_chat_message(message):
     return data
 
 
-def serialize_chat_session(session, include_messages=False):
+def serialize_chat_session(
+    session: "ChatSession", include_messages: bool = False
+) -> dict:
     """
     Serialize a ChatSession into a dict for the chat API.
 
@@ -139,7 +141,7 @@ def serialize_chat_session(session, include_messages=False):
     return data
 
 
-def transcript_context_for_note(note):
+def transcript_context_for_note(note: "Note") -> str:
     """
     Build the transcript context block for a note used in chat prompts.
 
@@ -183,7 +185,9 @@ def transcript_context_for_note(note):
     return "\n".join(parts)
 
 
-def call_ollama_for_chat(session):
+def call_ollama_for_chat(
+    session: "ChatSession",
+) -> tuple[str | None, tuple[str, int] | None]:
     """
     Send a chat request to Ollama with the session's context.
 
@@ -289,7 +293,7 @@ def call_ollama_for_chat(session):
 
 
 @app.route("/chat")
-def chat():
+def chat() -> str:
     """
     Render the chat page.
 
@@ -301,7 +305,7 @@ def chat():
 
 
 @app.route("/api/chat/recordings")
-def api_chat_recordings():
+def api_chat_recordings() -> Response:
     """
     List recordings available for chat, filtered and with completed transcripts.
 
@@ -322,7 +326,7 @@ def api_chat_recordings():
 
 
 @app.route("/api/chat/sessions")
-def api_chat_sessions():
+def api_chat_sessions() -> Response:
     """
     List all chat sessions ordered by most recently updated.
 
@@ -337,7 +341,7 @@ def api_chat_sessions():
 
 
 @app.route("/api/chat/sessions/<int:session_id>")
-def api_chat_session(session_id):
+def api_chat_session(session_id: int) -> Response:
     """
     Return a single chat session with its messages.
 
@@ -352,7 +356,7 @@ def api_chat_session(session_id):
 
 
 @app.route("/api/chat/sessions", methods=["POST"])
-def create_chat_session():
+def create_chat_session() -> Response:
     """
     Create a chat session from the requested note ids.
 
@@ -400,7 +404,7 @@ def create_chat_session():
 
 
 @app.route("/api/chat/sessions/<int:session_id>/messages", methods=["POST"])
-def create_chat_message(session_id):
+def create_chat_message(session_id: int) -> Response:
     """
     Add a user message to a session and get the assistant's reply.
 
@@ -431,7 +435,7 @@ def create_chat_message(session_id):
         )
 
     user_message = ChatMessage(session=session, role="user", content=content)
-    session.updated_at = datetime.utcnow()
+    session.updated_at = datetime.now(timezone.utc)
     db.session.add(user_message)
     db.session.commit()
 
@@ -446,7 +450,7 @@ def create_chat_message(session_id):
         )
 
     assistant_message = ChatMessage(session=session, role="assistant", content=answer)
-    session.updated_at = datetime.utcnow()
+    session.updated_at = datetime.now(timezone.utc)
     db.session.add(assistant_message)
     db.session.commit()
 
@@ -461,7 +465,7 @@ def create_chat_message(session_id):
 
 
 @app.route("/api/chat/sessions/<int:session_id>/title", methods=["POST"])
-def update_chat_session_title(session_id):
+def update_chat_session_title(session_id: int) -> Response:
     """
     Update a chat session's title.
 
@@ -478,6 +482,6 @@ def update_chat_session_title(session_id):
         return jsonify({"error": "A title is required."}), 400
 
     session.title = title[:200]
-    session.updated_at = datetime.utcnow()
+    session.updated_at = datetime.now(timezone.utc)
     db.session.commit()
     return jsonify({"session": serialize_chat_session(session, include_messages=True)})

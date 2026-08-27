@@ -15,9 +15,9 @@ from urllib.parse import unquote, urlparse
 from core.config import NOTE_IMAGES_DIR
 from services.text_filters import sanitize_rich_note_html
 
-LOCAL_NOTE_IMAGE_ROUTE = "/recordings/note_images/"
-SUPPORTED_OLLAMA_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
-DATA_IMAGE_RE = re.compile(
+LOCAL_NOTE_IMAGE_ROUTE: str = "/recordings/note_images/"
+SUPPORTED_OLLAMA_IMAGE_EXTENSIONS: set[str] = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+DATA_IMAGE_RE: "re.Pattern[str]" = re.compile(
     r"^data:image/(?P<type>png|jpe?g|gif|webp);base64,(?P<data>.+)$",
     re.IGNORECASE | re.DOTALL,
 )
@@ -28,7 +28,7 @@ class RichNoteImageParser(HTMLParser):
     HTML parser to extract image tags and their attributes from rich note HTML content.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Initialize the parser with an empty images list.
 
@@ -37,9 +37,9 @@ class RichNoteImageParser(HTMLParser):
         """
 
         super().__init__()
-        self.images = []
+        self.images: list[dict] = []
 
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         """
         Handles the start of an HTML tag, extracting src and alt attributes if the tag is an <img>.
         """
@@ -58,7 +58,7 @@ class RichNoteImageParser(HTMLParser):
             )
 
 
-def extract_rich_note_images(html):
+def extract_rich_note_images(html: str | None) -> list[dict]:
     """
     Extracts image sources and alt texts from rich note HTML content.
 
@@ -71,7 +71,7 @@ def extract_rich_note_images(html):
     return parser.images
 
 
-def note_image_path_from_src(src):
+def note_image_path_from_src(src: str) -> str | None:
     """
     Resolves a local image source path from a rich note's HTML src attribute.
 
@@ -105,7 +105,7 @@ def note_image_path_from_src(src):
     return image_path
 
 
-def ollama_image_from_src(src):
+def ollama_image_from_src(src: str | None) -> str | None:
     """
     Converts an image source (data URI or local path) into a base64 encoded string compatible with Ollama.
 
@@ -125,7 +125,7 @@ def ollama_image_from_src(src):
         return base64.b64encode(image_file.read()).decode("ascii")
 
 
-def collect_ollama_note_images(notes):
+def collect_ollama_note_images(notes: list) -> list[str]:
     """
     Collects unique base64 encoded images from a list of notes.
 
