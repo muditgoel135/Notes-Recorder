@@ -20,6 +20,7 @@ from core.config import BASE_DIR, DEFAULT_UNIT
 # Import audio and services helpers
 from audio.recordings import note_download_basename
 from audio.transcription import format_transcript_with_speakers
+from services.notes_query import remove_note_from_search_index
 from services.text_filters import (
     rich_note_html_to_text,
     format_display_date,
@@ -95,6 +96,7 @@ def bulk_delete_notes() -> Response:
                 os.remove(recording_file_path)
 
         deleted_ids.append(note.id)
+        remove_note_from_search_index(note.id)
         db.session.delete(note)
 
     db.session.commit()

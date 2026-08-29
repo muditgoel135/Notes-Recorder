@@ -32,6 +32,7 @@ from core.config import (
 # Import services and audio helpers
 from services.note_images import collect_ollama_note_images
 from services.text_filters import rich_note_html_to_text
+from services.notes_query import refresh_note_search_index
 from services.video_embeds import (
     extract_video_embeds,
     format_video_transcripts,
@@ -179,6 +180,7 @@ def update_key_points_status(
         note.key_points = key_points
 
     note.key_points_error = error
+    refresh_note_search_index(note)
     db.session.commit()
     return note
 

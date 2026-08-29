@@ -9,7 +9,6 @@ import json
 from core.extensions import db
 from core.models import Note, Subject, Tag, Unit
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -30,6 +29,10 @@ def _create_note(db_session, **overrides):
     defaults.update(overrides)
     note = Note(**defaults)
     db_session.add(note)
+    from services.notes_query import refresh_note_search_index
+
+    db_session.flush()
+    refresh_note_search_index(note)
     db_session.commit()
     return note
 
@@ -60,11 +63,68 @@ def test_index_returns_200(test_app):
 
 
 def test_index_with_search_filter(test_app):
-    _create_note(db.session, title="Photosynthesis notes", transcription="biology content")
+    _create_note(
+        db.session, title="Photosynthesis notes", transcription="biology content"
+    )
     client = test_app.test_client()
     response = client.get("/?q=Photosynthesis")
     assert response.status_code == 200
     assert b"Photosynthesis notes" in response.data
+
+
+def test_search_finds_text_in_rich_notes(test_app):
+    """
+    The FTS index searches the plain text extracted from rich note HTML, not
+    the raw HTML markup. A term split across tags (e.g. inside <em>) must be
+    findable.
+    """
+    from services.notes_query import init_database
+
+    with test_app.app_context():
+        init_database()
+    _create_note(
+        db.session,
+        title="Calc Notes",
+        notes_html="<p>derivatives and <em>integrals</em> formula</p>",
+    )
+    client = test_app.test_client()
+    response = client.get("/?q=integrals")
+    assert response.status_code == 200
+    assert b"Calc Notes" in response.data
+
+
+def test_search_reflects_edited_rich_notes(test_app):
+    from services.notes_query import init_database
+
+    with test_app.app_context():
+        init_database()
+    note = _create_note(db.session, title="Chem Notes", notes_html="<p>acid</p>")
+    client = test_app.test_client()
+
+    assert b"Chem Notes" in client.get("/?q=acid").data
+    assert b"Chem Notes" not in client.get("/?q=base").data
+
+    # Update the rich notes and the index should refresh.
+    response = client.post(
+        f"/notes/{note.id}/notes",
+        json={"notes_html": "<p>base</p>"},
+    )
+    assert response.status_code == 200
+    assert b"Chem Notes" not in client.get("/?q=acid").data
+    assert b"Chem Notes" in client.get("/?q=base").data
+
+
+def test_search_after_delete_excludes_note(test_app):
+    from services.notes_query import init_database
+
+    with test_app.app_context():
+        init_database()
+    note = _create_note(db.session, title="Gone Note", transcription="unique sentence")
+    client = test_app.test_client()
+    assert b"Gone Note" in client.get("/?q=unique").data
+
+    client.post(f"/delete/{note.id}")
+    assert b"Gone Note" not in client.get("/?q=unique").data
 
 
 def test_index_with_subject_filter(test_app):
@@ -585,7 +645,9 @@ def test_bulk_export_empty(test_app):
 
 
 def test_update_rich_notes(test_app):
-    note = _create_note(db.session, transcription_status="completed", transcription="test transcript")
+    note = _create_note(
+        db.session, transcription_status="completed", transcription="test transcript"
+    )
     client = test_app.test_client()
     response = client.post(
         f"/notes/{note.id}/notes",

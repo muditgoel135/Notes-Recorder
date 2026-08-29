@@ -25,6 +25,10 @@ from core.config import (
     TRANSCRIPTION_PENDING,
     DEFAULT_UNIT,
 )
+from services.notes_query import (
+    refresh_note_search_index,
+    remove_note_from_search_index,
+)
 from audio.transcription import enqueue_transcription
 
 if not os.path.exists(RECORDINGS_DIR):
@@ -142,6 +146,8 @@ def save_audio_file(
     )
 
     db.session.add(new_note)
+    db.session.flush()
+    refresh_note_search_index(new_note)
     db.session.commit()
     enqueue_transcription(new_note.id, file_path)
     return new_note
@@ -351,6 +357,7 @@ def finish_recording_session(
     session.status = FINISHED_RECORDING_STATUS
     session.end_time = end_time
     session.note_id = note.id
+    refresh_note_search_index(note)
     db.session.commit()
 
     shutil.rmtree(chunk_dir, ignore_errors=True)

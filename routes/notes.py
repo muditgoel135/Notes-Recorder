@@ -44,6 +44,8 @@ from services.notes_query import (
     build_notes_query,
     parse_notes_filters_from_request,
     check_has_active_transcription,
+    refresh_note_search_index,
+    remove_note_from_search_index,
 )
 from services.text_filters import sanitize_rich_note_html
 from audio.recordings import note_download_basename, duration_seconds_from_times
@@ -315,6 +317,7 @@ def update_note_subject(note_id: int) -> Response:
 
     note.subject = subject[:100]
     note.unit = unit[:100]
+    refresh_note_search_index(note)
     db.session.commit()
     return jsonify({"subject": note.subject, "unit": note.unit})
 
@@ -529,6 +532,7 @@ def update_note_rich_notes(note_id: int) -> Response:
         note.key_points_status = KEY_POINTS_FAILED
         note.key_points_error = "Transcript is not available yet."
 
+    refresh_note_search_index(note)
     db.session.commit()
 
     if should_regenerate:
@@ -566,6 +570,7 @@ def update_note(note_id: int) -> Response:
 
     note.title = title[:200] or None
     note.key_points = key_points or None
+    refresh_note_search_index(note)
     db.session.commit()
     return jsonify({"message": "Note updated."})
 
@@ -587,6 +592,7 @@ def delete_note(note_id: int) -> Response:
         if os.path.exists(recording_file_path):
             os.remove(recording_file_path)
 
+    remove_note_from_search_index(note.id)
     db.session.delete(note)
     db.session.commit()
 

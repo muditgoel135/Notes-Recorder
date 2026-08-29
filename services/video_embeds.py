@@ -28,6 +28,7 @@ from core.config import (
 )
 from core.extensions import db
 from services.text_filters import sanitize_rich_note_html
+from services.notes_query import refresh_note_search_index
 
 
 class _VideoEmbedParser(HTMLParser):
@@ -668,6 +669,7 @@ def _merge_video_transcript(note: "Note", title: str, transcript: str) -> None:
         if existing
         else f"{header}\n{transcript}"
     )
+    refresh_note_search_index(note)
 
 
 def _cleanup_media(video_path: str, audio_path: str) -> None:

@@ -23,6 +23,7 @@ import numpy as np
 # Import core extensions and models
 from core.extensions import app, db
 from core.models import Note
+from services.notes_query import refresh_note_search_index
 
 # Import core.config constants
 from core.config import (
@@ -186,6 +187,7 @@ def update_transcription_status(
         note.transcription_segments = segments
 
     note.transcription_error = error
+    refresh_note_search_index(note)
     db.session.commit()
     return note
 

@@ -27,7 +27,7 @@ A small Flask app for recording class notes from the browser microphone, transcr
 - Download a note's transcript (`.txt`) or key points (`.md`).
 - Click a word in the transcript to jump playback to that point in the audio, with the current word highlighted as it plays. A **Sync transcript with audio playback** checkbox toggles this behavior on or off (remembered across visits).
 - Hierarchical tags: organize notes with nested tags, each with a custom color, managed in-app via **Manage Tags** (add, edit, delete, or add a subtag), and filter the notes list by tag. Filtering by a parent tag includes its subtags.
-- Search and filter notes by text, date range, time range, subject and unit, transcription/key-points status (pending, processing, completed, or failed), or whether a note has any saved user notes (**Empty notes only**). Results can be sorted by date, title, subject, or transcription/key-points status.
+- Search and filter notes by text, date range, time range, subject and unit, transcription/key-points status (pending, processing, completed, or failed), or whether a note has any saved user notes (**Empty notes only**). Results can be sorted by date, title, subject, or transcription/key-points status. Text search uses a SQLite FTS5 index (built on startup and kept in sync as notes are created, edited, transcribed, or deleted) for fast, relevance-ranked results over titles, subjects, units, transcripts, key points, and rich-note text; it falls back to plain substring matching on SQLite builds without FTS5.
 - Render markdown tables in generated key points and chat answers.
 - For notes recorded under the "Hindi" subject, transcription is tuned for Hindi speech (with English words/phrases transcribed in English) using a Hindi-specific prompt and language setting.
 - Paginated notes list.
@@ -35,6 +35,8 @@ A small Flask app for recording class notes from the browser microphone, transcr
 - Batch operations on multiple recordings: select checkboxes (or select the whole filtered result set) to delete several notes at once, change the subject of several notes at once (resetting their unit to "General"), add one tag to many recordings, or export multiple recordings together as a zip (audio plus transcripts, key points, and rich-note text, plus a `summary.txt`).
 - Pin a recording to keep it at the top of the list; pinned recordings are shown in a separate **Pinned recordings** section above the rest, regardless of the current sort order.
 - Store recording, note, tag, speaker, subject, unit, and chat metadata in SQLite.
+- CSRF protection: state-changing requests (POST/PUT/PATCH/DELETE) that arrive with an `Origin` or `Referer` header naming a different host are rejected with a 403, so a third-party site cannot forge requests against the app. Same-origin AJAX and clients that send no origin headers (curl, scripts) are unaffected. Sessions also use `SESSION_COOKIE_SAMESITE=Lax`.
+- The SQLite database runs in WAL journal mode with a busy timeout and `synchronous=NORMAL`, so the background transcription worker and the request threads can read/write concurrently without "database is locked" errors.
 
 ## Tech Stack
 
@@ -60,9 +62,10 @@ Notes-Recorder/
 |   |-- config.py       # environment-derived settings and constants
 |   `-- models.py       # Note, Speaker, Subject, Unit, Tag, and chat database models
 |-- services/
-|   |-- notes_query.py  # DB init/migration and notes list querying
+|   |-- notes_query.py  # DB init/migration, FTS5 search index, and notes list querying
 |   |-- note_images.py  # rich-note image extraction and Ollama image encoding helpers
-|   |-- text_filters.py # Jinja template filters (markdown, from_json)
+|   |-- text_filters.py # markdown/rich-note HTML sanitization, display formatting, and Jinja template filters
+|   |-- csrf.py         # cross-origin request rejection for state-changing routes
 |   `-- video_embeds.py # embedded YouTube/Vimeo download, transcription, and keyframes
 |-- audio/
 |   |-- recordings.py       # audio file storage helpers
@@ -81,6 +84,8 @@ Notes-Recorder/
 |   `-- bulk.py         # bulk delete, subject, tagging, and export routes
 |-- LICENSE.txt
 |-- requirements.txt
+|-- pytest.ini        # pytest configuration (testpaths = tests)
+|-- tests/            # pytest suite (route integration, CSRF, key-points, filters, audio)
 |-- templates/
 |   |-- index.html
 |   |-- chat.html
@@ -132,12 +137,13 @@ After installing (or updating any PATH-related install), restart your terminal s
 
 Optional environment variables (e.g. in a `.env` file):
 
-- `SECRET_KEY` — Flask session secret.
+- `SECRET_KEY` — Flask session secret. If not set, a persistent random key is generated on first run and stored in `instance/secret_key` (gitignored), so sessions survive restarts without leaking a key into the repo.
 - `WHISPER_MODEL` — Whisper model size to load (default `small`).
 - `RNNOISE_MODEL` — path to the RNNoise model file used to denoise recordings before transcription and speaker diarization (default `models/rnnoise/std.rnnn`). Point it at another `.rnn` file to swap the model, or set it to an empty value to disable denoising.
 - `DIARIZATION_MAX_SPEAKERS` — maximum number of speakers speaker diarization may attribute turns to (default `15`). Lower it for small classes or raise it for large ones.
 - `OLLAMA_API_KEY` — API key for Ollama's hosted chat API. Required for title/key-points extraction and chatting with recordings; without it, transcription still works.
 - `KEY_POINTS_RETRY_SECONDS` — how often (in seconds) to retry key-points extraction while there is no internet connection (default `30`).
+- `KEY_POINTS_MAX_RETRIES` — how many consecutive offline retries of key-points extraction are allowed before the note is marked failed (default `5`); prevents an endless retry timer during a long outage.
 - `VIDEO_KEYFRAME_COUNT` — how many keyframes per embedded video are extracted and sent to the model (default `6`). Keyframes are cached under `recordings/video_cache/`; the downloaded video/audio media is removed after processing.
 - `OLLAMA_MODEL` — Ollama model used for key-points extraction and chat (default `minimax-m3`). Must be a vision-capable model so images in rich notes are sent along; e.g. `minimax-m3` (1M context) or `gemma4:cloud`. Text-only models like `gpt-oss:20b` reject image input.
 - `TRANSCRIBE_EXISTING_ON_STARTUP` — set to `false` to skip re-queuing any pending transcriptions/key-points on startup (default `true`).
@@ -162,6 +168,14 @@ Open:
 ```text
 http://127.0.0.1:5000/
 ```
+
+## Tests
+
+```powershell
+pytest
+```
+
+The suite in `tests/` covers route integration (listings, search, filters, edits, bulk operations, chat), CSRF rejection, key-points JSON parsing, notes-list/recording/audio-processing helpers, and the FTS5 search index. Tests run against a throwaway SQLite database (via `conftest.py`) and never touch `instance/database.db`.
 
 ## Usage
 

@@ -6,11 +6,12 @@ Query building functions for retrieving notes based on various filters.
 
 # Import required modules
 from flask import request
-from sqlalchemy import func, inspect, text
+from sqlalchemy import Column, func, inspect, text, Case
 
 # Import the database instance, models, and config constants
 from core.extensions import db
 from core.models import Note, Tag, Subject, get_tag_descendant_ids
+from services.text_filters import rich_note_html_to_text
 from core.config import (
     TRANSCRIPTION_PENDING,
     TRANSCRIPTION_PROCESSING,
@@ -72,7 +73,206 @@ STATUS_RANK = {
 }
 
 
-def _status_rank_expression(column: "sqlalchemy.Column") -> "sqlalchemy.Case":
+# Name of the FTS5 virtual table used for full-text search over notes.
+SEARCH_FTS_TABLE: str = "notes_fts"
+_HAS_FTS5: bool | None = None
+
+
+def fts5_available() -> bool:
+    """
+    Whether the active SQLite build ships the FTS5 module.
+
+    Result is cached after the first probe (using the pragma_compile_options
+    table of the database's SQLite engine). Used to decide whether the full
+    text search index can be created and used.
+
+    :return: True when FTS5 is available, False otherwise.
+    :rtype: bool
+    """
+
+    global _HAS_FTS5
+    if _HAS_FTS5 is None:
+        try:
+            row = db.session.execute(
+                text(
+                    "SELECT count(*) FROM pragma_compile_options "
+                    "WHERE compile_options = 'ENABLE_FTS5'"
+                )
+            ).fetchone()
+            _HAS_FTS5 = bool(row and row[0])
+        except Exception:
+            _HAS_FTS5 = False
+    return _HAS_FTS5
+
+
+def search_fts_table_exists() -> bool:
+    """
+    Whether the notes FTS table has been created in this database.
+
+    :return: True when the FTS table exists, False otherwise.
+    :rtype: bool
+    """
+
+    if not fts5_available():
+        return False
+    try:
+        rows = db.session.execute(
+            text(
+                "SELECT name FROM sqlite_master "
+                "WHERE type = 'table' AND name = :name"
+            ),
+            {"name": SEARCH_FTS_TABLE},
+        ).fetchall()
+        return bool(rows)
+    except Exception:
+        return False
+
+
+def _create_search_fts_table() -> None:
+    """
+    Create the notes FTS5 virtual table if FTS5 is available.
+
+    The table is standalone (the original content is stored in the index), so
+    its rows are maintained explicitly by ``refresh_note_search_index``.
+
+    :return: None
+    :rtype: None
+    """
+
+    if not fts5_available():
+        return
+    db.session.execute(
+        text(
+            f"CREATE VIRTUAL TABLE IF NOT EXISTS {SEARCH_FTS_TABLE} "
+            "USING fts5("
+            "title, "
+            "subject, "
+            "unit, "
+            "transcription, "
+            "key_points, "
+            "notes_text, "
+            "tokenize = 'porter unicode61'"
+            ")"
+        )
+    )
+
+
+def _fts_match_query(search: str) -> str | None:
+    """
+    Build a safe FTS5 MATCH phrase from the user's raw search text.
+
+    Each whitespace-delimited token is wrapped in double quotes (a phrase) and
+    ANDed together, so FTS operators like quotes, asterisks, and parentheses in
+    the user input are treated as literal text rather than query syntax.
+
+    :param search: The raw search string.
+    :type search: str
+    :return: A safe MATCH expression, or None when there is nothing to match.
+    :rtype: str or None
+    """
+
+    tokens = []
+    for token in search.split():
+        token = token.strip().strip('"')
+        if token:
+            tokens.append(f'"{token.replace(chr(34), chr(34) + chr(34))}"')
+    return " AND ".join(tokens) if tokens else None
+
+
+def _search_note_rowids(match_query: str) -> list[int]:
+    """
+    Return note ids matching an FTS5 MATCH expression, ordered by relevance.
+
+    :param match_query: A validated FTS5 MATCH expression.
+    :type match_query: str
+    :return: A list of matching note ids.
+    :rtype: list of int
+    """
+
+    rows = db.session.execute(
+        text(
+            f"SELECT rowid FROM {SEARCH_FTS_TABLE} "
+            f"WHERE {SEARCH_FTS_TABLE} MATCH :q "
+            f"ORDER BY bm25({SEARCH_FTS_TABLE})"
+        ),
+        {"q": match_query},
+    ).fetchall()
+    return [row[0] for row in rows]
+
+
+def refresh_note_search_index(note: "Note | None") -> None:
+    """
+    Rebuild the FTS5 row for a note from its current searchable fields.
+
+    Deletes and reinserts the note's row so the index stays in sync with the
+    note's title, subject, unit, transcription, key points, and rich-note text.
+    Runs within the caller's transaction (it does not commit), so the updated
+    model fields and the refreshed index row are persisted atomically by the
+    caller's commit.
+
+    :param note: The Note instance to reindex.
+    :type note: Note or None
+    :return: None
+    :rtype: None
+    """
+
+    if not note or note.id is None:
+        return
+    if not search_fts_table_exists():
+        return
+
+    try:
+        db.session.execute(
+            text(f"DELETE FROM {SEARCH_FTS_TABLE} WHERE rowid = :id"),
+            {"id": note.id},
+        )
+        db.session.execute(
+            text(
+                f"INSERT INTO {SEARCH_FTS_TABLE} "
+                "(rowid, title, subject, unit, transcription, key_points, notes_text) "
+                "VALUES (:id, :title, :subject, :unit, :transcription, :key_points, :notes_text)"
+            ),
+            {
+                "id": note.id,
+                "title": note.title or "",
+                "subject": note.subject or "",
+                "unit": note.unit or "",
+                "transcription": note.transcription or "",
+                "key_points": note.key_points or "",
+                "notes_text": rich_note_html_to_text(note.notes_html),
+            },
+        )
+    except Exception:
+        db.session.rollback()
+
+
+def remove_note_from_search_index(note_id: int) -> None:
+    """
+    Remove a note's row from the FTS5 search index.
+
+    Runs within the caller's transaction (it does not commit), so the removal
+    is persisted atomically with the caller's commit. Safe to call for notes
+    that are not in the index.
+
+    :param note_id: ID of the note to remove from the index.
+    :type note_id: int
+    :return: None
+    :rtype: None
+    """
+
+    if not search_fts_table_exists():
+        return
+
+    try:
+        db.session.execute(
+            text(f"DELETE FROM {SEARCH_FTS_TABLE} WHERE rowid = :id"),
+            {"id": note_id},
+        )
+    except Exception:
+        db.session.rollback()
+
+
+def _status_rank_expression(column: "Column") -> "Case":
     """
     Build a SQL CASE expression ranking a note status column.
 
@@ -88,12 +288,55 @@ def _status_rank_expression(column: "sqlalchemy.Column") -> "sqlalchemy.Case":
     return db.case(STATUS_RANK, value=column, else_=99)
 
 
+def _register_sqlite_pragmas() -> None:
+    """
+    Configure SQLite for safe concurrent access from the request threads and
+    the background transcription worker thread.
+
+    ``init_database`` runs inside an app context so ``db.engine`` is available
+    here. The listener runs once per new DB-API connection (including the worker
+    thread's connections) and:
+      - switches the database to WAL journal mode, which lets a single writer
+        proceed alongside concurrent readers;
+      - sets a busy timeout so a writer waits for a momentarily-held lock instead
+        of immediately raising ``sqlite3.OperationalError: database is locked``;
+      - relaxes the synchronous level, which is safe in WAL mode and reduces the
+        write latency that made lock contention worse.
+
+    Without this, a recording being transcribed by the worker while a request
+    commits can raise ``database is locked`` and surface as intermittent 500s.
+    """
+
+    global _SQLITE_PRAGMA_REGISTERED
+
+    from sqlalchemy import event
+
+    if _SQLITE_PRAGMA_REGISTERED:
+        return
+
+    @event.listens_for(db.engine, "connect")
+    def _set_pragmas(dbapi_connection, _connection_record):
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=5000")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+        finally:
+            cursor.close()
+
+    _SQLITE_PRAGMA_REGISTERED = True
+
+
+_SQLITE_PRAGMA_REGISTERED = False
+
+
 def init_database() -> None:
     """
     Initializes the database by creating all tables, seeding default subjects,
     and performing necessary schema migrations for the Note and recording_session tables.
     """
 
+    _register_sqlite_pragmas()
     db.create_all()
 
     if not Subject.query.first():
@@ -180,6 +423,33 @@ def init_database() -> None:
                 {"default_unit": DEFAULT_UNIT},
             )
 
+    _create_search_fts_table()
+    _backfill_search_index()
+
+
+def _backfill_search_index() -> None:
+    """
+    Rebuild the entire notes FTS index from the current notes table.
+
+    Deletes and recreates the index rows so startup stays consistent even if a
+    prior run left the table partially out of sync. Safe to run repeatedly.
+    Called during ``init_database``.
+
+    :return: None
+    :rtype: None
+    """
+
+    if not search_fts_table_exists():
+        return
+
+    try:
+        db.session.execute(text(f"DELETE FROM {SEARCH_FTS_TABLE}"))
+        for note in Note.query.all():
+            refresh_note_search_index(note)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
 
 def build_notes_query(
     search: str | None = None,
@@ -230,17 +500,29 @@ def build_notes_query(
     query = Note.query
 
     if search:
-        like_pattern = f"%{search}%"
-        query = query.filter(
-            db.or_(
-                Note.title.ilike(like_pattern),
-                Note.transcription.ilike(like_pattern),
-                Note.subject.ilike(like_pattern),
-                Note.unit.ilike(like_pattern),
-                Note.key_points.ilike(like_pattern),
-                Note.notes_html.ilike(like_pattern),
+        match_query = _fts_match_query(search) if search_fts_table_exists() else None
+        if match_query:
+            try:
+                row_ids = _search_note_rowids(match_query)
+                query = query.filter(Note.id.in_(row_ids))
+                search_used_fts = True
+            except Exception:
+                search_used_fts = False
+        else:
+            search_used_fts = False
+
+        if not search_used_fts:
+            like_pattern = f"%{search}%"
+            query = query.filter(
+                db.or_(
+                    Note.title.ilike(like_pattern),
+                    Note.transcription.ilike(like_pattern),
+                    Note.subject.ilike(like_pattern),
+                    Note.unit.ilike(like_pattern),
+                    Note.key_points.ilike(like_pattern),
+                    Note.notes_html.ilike(like_pattern),
+                )
             )
-        )
 
     if date_from:
         query = query.filter(Note.date >= date_from)
@@ -328,7 +610,9 @@ def build_notes_query(
 
     return query.order_by(
         Note.pinned.desc(),
-        *order_rules.get(sort, order_rules[DEFAULT_SORT]),
+        *order_rules.get(
+            sort, order_rules[DEFAULT_SORT]
+        ),  # pyright: ignore[reportCallIssue], ignore[reportArgumentType]
     )
 
 
