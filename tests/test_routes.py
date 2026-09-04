@@ -526,7 +526,7 @@ def test_delete_unit(test_app):
 # ---------------------------------------------------------------------------
 
 
-def test_create_recording_session(test_app):
+def test_create_recording_session(test_app, tmp_recordings):
     client = test_app.test_client()
     response = client.post(
         "/api/recording_sessions",
@@ -536,6 +536,7 @@ def test_create_recording_session(test_app):
     data = response.get_json()
     assert "session" in data
     assert data["session"]["subject"] == "Physics"
+    assert tmp_recordings.submissions == []
 
 
 def test_create_recording_session_no_subject(test_app):
@@ -644,7 +645,7 @@ def test_bulk_export_empty(test_app):
 # ---------------------------------------------------------------------------
 
 
-def test_update_rich_notes(test_app):
+def test_update_rich_notes(test_app, tmp_recordings):
     note = _create_note(
         db.session, transcription_status="completed", transcription="test transcript"
     )
@@ -656,6 +657,8 @@ def test_update_rich_notes(test_app):
     assert response.status_code == 200
     data = response.get_json()
     assert data["notes_html"] == "<p>My notes</p>"
+    assert note.key_points_generation == 1
+    assert len(tmp_recordings.submissions) == 1
 
 
 # ---------------------------------------------------------------------------

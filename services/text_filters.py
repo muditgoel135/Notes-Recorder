@@ -189,8 +189,14 @@ class RichNoteTextParser(HTMLParser):
             attrs_by_name = dict(attrs)
             alt = (attrs_by_name.get("alt") or "").strip()
             src = (attrs_by_name.get("src") or "").strip()
-            if alt or src:
-                self.parts.append(f" [Image: {alt or src}] ")
+            # Don't dump full base64 data URIs into the prompt text; the
+            # encoded image is passed separately to the vision model via
+            # collect_ollama_note_images(). Use the alt text (or a placeholder
+            # when absent) so huge embedded images don't blow the context.
+            displayed = alt if alt else "[Image]"
+            if src and not src.startswith("data:"):
+                displayed = src
+            self.parts.append(f" [Image: {displayed}] ")
 
         elif tag == "iframe":
             attrs_by_name = dict(attrs)

@@ -76,7 +76,7 @@ class Note(db.Model):
         :rtype: dict of int to Speaker
         """
 
-        return {speaker.order_index: speaker for speaker in self.speakers}
+        return {speaker.order_index: speaker for speaker in self.speakers} # type: ignore
 
 
 class RecordingSession(db.Model):

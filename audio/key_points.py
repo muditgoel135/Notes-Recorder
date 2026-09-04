@@ -10,7 +10,11 @@ persistence.
 import json
 import re
 import threading
+import time
+import warnings
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # Import core extensions and models
 from core.extensions import app, db
@@ -27,6 +31,7 @@ from core.config import (
     OLLAMA_API_KEY,
     OLLAMA_MODEL,
     OLLAMA_CHAT_URL,
+    OLLAMA_VERIFY_SSL,
 )
 
 # Import services and audio helpers
@@ -43,6 +48,57 @@ from audio.audio_processing import is_internet_available
 _offline_retry_counts: dict[int, tuple[int | None, int]] = {}
 
 _PUNCTUATION_ONLY_RE: "re.Pattern[str]" = re.compile(r"^[\W_]+$")
+
+_OllamaRetry = Retry(
+    total=3,
+    connect=3,
+    read=3,
+    status=3,
+    backoff_factor=1.5,
+    status_forcelist=(429, 500, 502, 503, 504),
+    allowed_methods=frozenset(["GET", "POST"]),
+)
+
+
+def _post_ollama(api_url: str, headers: dict, payload: dict) -> requests.Response:
+    """
+    POST to Ollama with retry/backoff for transient failures.
+
+    SSL EOF, connection resets, and 5xx responses are commonly transient,
+    so this wraps the request in a urllib3 Retry-backed session to retry them
+    before surfacing the error to the caller.
+
+    :param api_url: Full Ollama chat endpoint URL.
+    :param headers: Request headers.
+    :param payload: JSON body to send.
+    :return: The (successful) requests.Response.
+    :rtype: requests.Response
+    """
+
+    if not OLLAMA_VERIFY_SSL:
+        # This is a deliberate, user-controlled setting in .env; silence the
+        # "InsecureRequestWarning" urllib3 emits for unverified requests.
+        warnings.filterwarnings(
+            "ignore",
+            message="Unverified HTTPS request",
+            category=__import__("urllib3").exceptions.InsecureRequestWarning,
+        )
+
+    session = requests.Session()
+    session.verify = OLLAMA_VERIFY_SSL
+    adapter = HTTPAdapter(max_retries=_OllamaRetry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    try:
+        return session.post(
+            api_url,
+            headers=headers,
+            json=payload,
+            timeout=120,
+        )
+    finally:
+        session.close()
+
 
 # Pattern for a stray backslash that isn't a valid JSON escape (e.g. LaTeX
 # style "\(" or "\(\)"). Matched against a JSON candidate.
@@ -452,16 +508,15 @@ def extract_key_points(
                     note_images.append(image)
             if note_images:
                 message["images"] = note_images  # type: ignore[assignment]
-            response = requests.post(
+            response = _post_ollama(
                 OLLAMA_CHAT_URL,
-                headers={"Authorization": f"Bearer {OLLAMA_API_KEY}"},
-                json={
+                {"Authorization": f"Bearer {OLLAMA_API_KEY}"},
+                {
                     "model": OLLAMA_MODEL,
                     "messages": [message],
                     "format": "json",
                     "stream": False,
                 },
-                timeout=120,
             )
 
             response.raise_for_status()

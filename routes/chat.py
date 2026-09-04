@@ -10,6 +10,8 @@ conversation endpoint.
 from datetime import datetime, timezone
 import requests
 from flask import render_template, request, jsonify, Response
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # Import core extensions and models
 from core.extensions import app, db
@@ -251,18 +253,30 @@ def call_ollama_for_chat(
     )
 
     try:
-        response = requests.post(
-            OLLAMA_CHAT_URL,
-            headers={"Authorization": f"Bearer {OLLAMA_API_KEY}"},
-            json={
-                "model": OLLAMA_MODEL,
-                "messages": messages,
-                "stream": False,
-            },
-            timeout=120,
+        retry = Retry(
+            total=3,
+            connect=3,
+            read=3,
+            status=3,
+            backoff_factor=1.5,
+            status_forcelist=(429, 500, 502, 503, 504),
+            allowed_methods=frozenset(["GET", "POST"]),
         )
-
-        response.raise_for_status()
+        adapter = HTTPAdapter(max_retries=retry)
+        with requests.Session() as chat_session:
+            chat_session.mount("https://", adapter)
+            chat_session.mount("http://", adapter)
+            response = chat_session.post(
+                OLLAMA_CHAT_URL,
+                headers={"Authorization": f"Bearer {OLLAMA_API_KEY}"},
+                json={
+                    "model": OLLAMA_MODEL,
+                    "messages": messages,
+                    "stream": False,
+                },
+                timeout=120,
+            )
+            response.raise_for_status()
 
     except (requests.ConnectionError, requests.Timeout) as exc:
         return None, (str(exc) or "Could not reach Ollama.", 503)

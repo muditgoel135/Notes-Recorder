@@ -85,7 +85,7 @@ def bulk_delete_notes() -> Response:
     data = request.get_json(silent=True) or {}
     note_ids = parse_bulk_note_ids(data)
     if not note_ids:
-        return jsonify({"error": "No notes selected."}), 400
+        return jsonify({"error": "No notes selected."}), 400 # type: ignore
 
     notes = Note.query.filter(Note.id.in_(note_ids)).all()
     deleted_ids = []
@@ -122,10 +122,10 @@ def bulk_update_subjects() -> Response:
     subject = (data.get("subject") or "").strip()
 
     if not note_ids:
-        return jsonify({"error": "No notes selected."}), 400
+        return jsonify({"error": "No notes selected."}), 400 # type: ignore
 
     if not subject:
-        return jsonify({"error": "A subject is required."}), 400
+        return jsonify({"error": "A subject is required."}), 400 # type: ignore
 
     count = Note.query.filter(Note.id.in_(note_ids)).update(
         {"subject": subject[:100], "unit": DEFAULT_UNIT},
@@ -154,10 +154,10 @@ def bulk_add_tag() -> Response:
     tag_id = data.get("tag_id")
 
     if not note_ids:
-        return jsonify({"error": "No notes selected."}), 400
+        return jsonify({"error": "No notes selected."}), 400 # type: ignore
 
     if tag_id is None or not str(tag_id).isdigit():
-        return jsonify({"error": "A tag is required."}), 400
+        return jsonify({"error": "A tag is required."}), 400 # type: ignore
 
     tag = Tag.query.get(int(tag_id))
     if not tag:

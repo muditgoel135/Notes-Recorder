@@ -47,6 +47,7 @@ from services.notes_query import (
     refresh_note_search_index,
     remove_note_from_search_index,
 )
+
 from services.text_filters import sanitize_rich_note_html
 from audio.recordings import note_download_basename, duration_seconds_from_times
 from audio.transcription import (
@@ -54,6 +55,7 @@ from audio.transcription import (
     extract_key_points,
     transcription_executor,
 )
+
 from audio.key_points import reset_key_points_offline_retries
 
 

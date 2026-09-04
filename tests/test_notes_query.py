@@ -119,3 +119,64 @@ def test_init_database_migrates_recording_session(test_app):
             "end_time",
             "subject",
         } <= columns
+
+
+def test_build_notes_query_applies_filters_and_pinned_order(test_app):
+    from core.extensions import db
+    from core.models import Note
+    from services.notes_query import build_notes_query
+
+    with test_app.app_context():
+        notes = [
+            Note(
+                date="2026-09-01",
+                time="09:00:00",
+                start_time="09:00:00",
+                end_time="09:30:00",
+                subject="Math",
+                unit="Algebra",
+                notes_html=None,
+                transcription_status="completed",
+                key_points_status="completed",
+                pinned=False,
+            ),
+            Note(
+                date="2026-09-02",
+                time="10:00:00",
+                start_time="10:00:00",
+                end_time="10:30:00",
+                subject="Physics",
+                unit="General",
+                notes_html="<p>saved</p>",
+                transcription_status="pending",
+                key_points_status="pending",
+                pinned=True,
+            ),
+        ]
+        db.session.add_all(notes)
+        db.session.commit()
+
+        result = build_notes_query(
+            date_from="2026-09-01",
+            date_to="2026-09-02",
+            subjects=["Math", "Physics"],
+            transcription_statuses=["completed"],
+            empty_notes=True,
+            sort="date_asc",
+        ).all()
+        assert [note.subject for note in result] == ["Math"]
+
+        ordered = build_notes_query(sort="date_desc").all()
+        assert ordered[0].pinned is True
+
+
+def test_parse_notes_filters_validates_statuses_and_units():
+    with app.test_request_context(
+        "/?units=Math::Algebra,broken&transcription_statuses=completed,bad"
+        "&key_points_statuses=failed,nope&empty_notes=yes"
+    ):
+        filters = parse_notes_filters_from_request()
+        assert filters["units"] == [("Math", "Algebra")]
+        assert filters["transcription_statuses"] == ["completed"]
+        assert filters["key_points_statuses"] == ["failed"]
+        assert filters["empty_notes"] is True

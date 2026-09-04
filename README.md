@@ -21,6 +21,7 @@ A small Flask app for recording class notes from the browser microphone, transcr
 - Inline editing of note title, key points, subject, date, and start time. Date/time edits preserve the original recording duration and recalculate the end time.
 - Rich notes can be captured while recording and edited later. The editor supports headings, font size/family, bold/italic/underline/strikethrough, subscript/superscript, alignment, indentation, RTL blocks, ordered/bulleted/check lists, blockquotes, code blocks, links, text/highlight colors, tables, image uploads, video embeds, and inline math. The font family picker offers a wide set of web-safe fonts.
 - Rich-note images are stored locally and included as image context when Ollama generates key points or answers chats about selected recordings.
+- Render markdown tables in generated key points and chat answers.
 - YouTube/Vimeo videos embedded in rich notes are automatically downloaded (yt-dlp) during key-points extraction: the video's audio is transcribed with Whisper and merged into the note's transcript, and keyframes are extracted with ffmpeg and sent to the model as image context. Supported pasted inputs include YouTube watch/short/embed URLs, youtu.be links, Vimeo URLs, and iframe embed code.
 - Inline math editing: use the **Math** button in the rich editor to insert LaTeX, click an existing formula to edit it, and see rendered math preserved in saved notes and the transcript view.
 - Retry transcription or key-points extraction at any time, not just after a failure. Retrying transcription also re-runs key-points extraction on the new transcript.
@@ -28,7 +29,6 @@ A small Flask app for recording class notes from the browser microphone, transcr
 - Click a word in the transcript to jump playback to that point in the audio, with the current word highlighted as it plays. A **Sync transcript with audio playback** checkbox toggles this behavior on or off (remembered across visits).
 - Hierarchical tags: organize notes with nested tags, each with a custom color, managed in-app via **Manage Tags** (add, edit, delete, or add a subtag), and filter the notes list by tag. Filtering by a parent tag includes its subtags.
 - Search and filter notes by text, date range, time range, subject and unit, transcription/key-points status (pending, processing, completed, or failed), or whether a note has any saved user notes (**Empty notes only**). Results can be sorted by date, title, subject, or transcription/key-points status. Text search uses a SQLite FTS5 index (built on startup and kept in sync as notes are created, edited, transcribed, or deleted) for fast, relevance-ranked results over titles, subjects, units, transcripts, key points, and rich-note text; it falls back to plain substring matching on SQLite builds without FTS5.
-- Render markdown tables in generated key points and chat answers.
 - For notes recorded under the "Hindi" subject, transcription is tuned for Hindi speech (with English words/phrases transcribed in English) using a Hindi-specific prompt and language setting.
 - Paginated notes list.
 - Delete a note, which also removes its saved recording file.
@@ -50,7 +50,7 @@ A small Flask app for recording class notes from the browser microphone, transcr
 - ffmpeg (audio conversion for Whisper)
 - OpenAI Whisper (speech-to-text)
 - pyannote.audio (speaker diarization)
-- Ollama API (title generation, key-points generation, and chat)
+- Ollama hosted API (title generation, key-points generation, and chat)
 
 ## Project Structure
 
@@ -217,6 +217,7 @@ Use the search box and date/time filters above the notes list to find recordings
 - WebM recordings are patched with duration metadata when possible so saved browser recordings report a useful playback length.
 - Saved recording files are ignored by Git through `recordings/` in `.gitignore`.
 - The app creates or updates its SQLite tables on startup, and seeds a default subject list (Math, Physics, Chemistry, Biology, English, Hindi, Individuals and Societies) the first time it runs with no subjects yet. Manage or replace these afterwards via **Manage Subjects**. Deleting a subject removes it from the picker; existing notes keep their stored subject text.
+- If FTS5 is available in the active SQLite build, the full-text search index is created on first startup and fully backfilled so every existing note is immediately searchable. It is kept in sync on every note create, edit, transcription, key-points update, and delete — so search results are always up to date.
 - Every note is assigned a unit that defaults to "General". Changing a note's subject keeps its unit only if that unit exists under the new subject, otherwise the unit resets to "General" (bulk subject changes also reset units to "General").
 - Transcription and key-points extraction run one at a time in a background worker; large backlogs process sequentially. On startup, pending or interrupted transcriptions/key-point jobs are re-queued unless `TRANSCRIBE_EXISTING_ON_STARTUP=false`.
 - The first transcription run downloads the selected Whisper model, which can take a while depending on model size and network speed.
@@ -232,3 +233,7 @@ Use the search box and date/time filters above the notes list to find recordings
 - Rich-note video embeds are sanitized to HTTPS YouTube/YouTube-nocookie and Vimeo player embeds before rendering or processing.
 - Rich-note HTML is sanitized with Bleach before rendering or converting to text for Ollama prompts; local rich-note image paths are validated before the image data is read.
 - The vendored `models/rnnoise/std.rnnn` is the standard pretrained RNNoise denoiser model (Xiph.org, BSD-3-Clause), the one bundled with the reference RNNoise implementation. It is applied with ffmpeg's `arnndn` filter to denoise recordings before transcription and speaker diarization.
+
+## AI Disclosure
+
+This project was developed with the assistance of AI tools, including OpenCode (primary), ChatGPT, Claude, Ollama, and GitHub Copilot. Human oversight, review, and final decisions were applied to all AI-generated or AI-assisted output.

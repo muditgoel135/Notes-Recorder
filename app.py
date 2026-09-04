@@ -32,6 +32,7 @@ app.before_request(reject_cross_origin_state_changes)
 
 import routes  # noqa: F401  (registers @app.route views as a side effect)
 
+
 with app.app_context():
     init_database()
     if TRANSCRIBE_EXISTING_ON_STARTUP:

@@ -75,8 +75,12 @@ KEY_POINTS_PROCESSING: str = "processing"
 KEY_POINTS_COMPLETED: str = "completed"
 KEY_POINTS_FAILED: str = "failed"
 OLLAMA_API_KEY: str = os.environ.get("OLLAMA_API_KEY", "")
-OLLAMA_MODEL: str = os.environ.get("OLLAMA_MODEL", "minimax-m3")
+OLLAMA_MODEL: str = os.environ.get("OLLAMA_MODEL", "gemma4:31b")
 OLLAMA_CHAT_URL: str = "https://ollama.com/api/chat"
+# Set to "false" to disable SSL certificate verification for Ollama requests.
+# Disabling verification is less secure but works around broken CA bundles
+# / TLS stacks that fail the handshake to ollama.com. Only disable if needed.
+OLLAMA_VERIFY_SSL: bool = os.environ.get("OLLAMA_VERIFY_SSL", "true").lower() != "false"
 KEY_POINTS_RETRY_SECONDS: int = int(os.environ.get("KEY_POINTS_RETRY_SECONDS", "30"))
 KEY_POINTS_MAX_RETRIES: int = int(os.environ.get("KEY_POINTS_MAX_RETRIES", "5"))
 VIDEO_KEYFRAME_COUNT: int = int(os.environ.get("VIDEO_KEYFRAME_COUNT", "6"))
