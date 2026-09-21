@@ -1,0 +1,140 @@
+<!-- Shared modal dialogs (subjects, tags, note tags, bulk ops, math).
+  Extracted verbatim from the legacy index page in Step 4; included by
+  the Library page and (Step 8) the Manage page. IDs frozen for the
+  legacy list scripts. -->
+<div class="modal fade" id="manage-subjects-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Manage Subjects</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <ul class="list-group mb-3" id="subject-list-manage"></ul>
+                <div class="small text-muted mb-1">Add subject</div>
+                <div class="d-flex gap-2 align-items-end">
+                    <input type="text" id="new-subject-name" class="form-control form-control-sm">
+                    <button type="button" id="add-subject-btn"
+                        class="btn btn-sm btn-primary text-nowrap">Add</button>
+                </div>
+                <div class="small text-danger mt-2 d-none" id="subject-manage-error"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="manage-tags-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Manage Tags</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+
+            <div class="modal-body">
+                <div id="tag-tree-manage"></div>
+                <hr>
+                <div class="small text-muted mb-1">Add tag</div>
+                <div class="d-flex gap-2 align-items-end flex-wrap">
+                    <div>
+                        <label class="form-label small mb-1" for="new-tag-name">Name</label>
+                        <input type="text" id="new-tag-name" class="form-control form-control-sm">
+                    </div>
+                    <div>
+                        <label class="form-label small mb-1" for="new-tag-color">Color</label>
+                        <input type="color" id="new-tag-color"
+                            class="form-control form-control-color form-control-sm" value="#3366cc">
+                    </div>
+                    <div>
+                        <label class="form-label small mb-1" for="new-tag-parent">Parent</label>
+                        <select id="new-tag-parent" class="form-select form-select-sm">
+                            <option value="">(top-level)</option>
+                        </select>
+                    </div>
+                    <button type="button" id="add-tag-btn" class="btn btn-sm btn-primary">Add</button>
+                </div>
+                <div class="small text-danger mt-2 d-none" id="tag-manage-error"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="note-tags-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit tags</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="note-tag-tree"></div>
+            </div>
+            <div class="modal-footer">
+                <div class="small text-danger me-auto d-none" id="note-tags-error"></div>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="save-note-tags-btn">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="bulk-subject-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Change subject for selected recordings</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <label class="form-label small" for="bulk-subject-select">Subject</label>
+                <select id="bulk-subject-select" class="form-select"></select>
+            </div>
+            <div class="modal-footer">
+                <div class="small text-danger me-auto d-none" id="bulk-subject-error"></div>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="save-bulk-subject-btn">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="bulk-add-tag-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add a tag to selected recordings</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="bulk-tag-tree"></div>
+            </div>
+            <div class="modal-footer">
+                <div class="small text-danger me-auto d-none" id="bulk-add-tag-error"></div>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="save-bulk-add-tag-btn">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="math-editor-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Insert math</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <label class="form-label" for="math-editor-field">Formula</label>
+                <div class="math-editor-field" id="math-editor-field"></div>
+                <label class="form-label mt-3" for="math-editor-latex">LaTeX</label>
+                <textarea class="form-control" id="math-editor-latex" rows="3"
+                    placeholder="x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}"></textarea>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="insert-math-btn">Insert</button>
+            </div>
+        </div>
+    </div>
+</div>

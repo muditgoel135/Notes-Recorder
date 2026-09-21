@@ -1,0 +1,39 @@
+<nav class="navbar navbar-expand-lg border-bottom mb-3" aria-label="Primary">
+    <div class="container py-1">
+        <a class="navbar-brand fw-semibold" href="{{ url_for('index') }}">Notes Recorder</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nr-navbar"
+            aria-controls="nr-navbar" aria-expanded="false" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="nr-navbar">
+            <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                <li class="nav-item">
+                    <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}"
+                        {% if request.endpoint=='index' %}aria-current="page" {% endif %}
+                        href="{{ url_for('index') }}">Recorder</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if request.endpoint in ('library', 'note_detail') %}active{% endif %}"
+                        {% if request.endpoint in ('library', 'note_detail') %}aria-current="page" {% endif %}
+                        href="{{ url_for('library') }}">Library</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if request.endpoint == 'chat' %}active{% endif %}"
+                        {% if request.endpoint=='chat' %}aria-current="page" {% endif %}
+                        href="{{ url_for('chat') }}">Chat</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if request.endpoint == 'manage' %}active{% endif %}"
+                        {% if request.endpoint=='manage' %}aria-current="page" {% endif %}
+                        href="{{ url_for('manage') }}">Manage</a>
+                </li>
+            </ul>
+            <div class="d-flex align-items-center gap-2">
+                <span id="worker-status-dot" class="nr-worker-dot" title="Background worker status"
+                    aria-label="Background worker status"></span>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="theme-toggle"
+                    aria-label="Color theme">Theme: Auto</button>
+            </div>
+        </div>
+    </div>
+</nav>

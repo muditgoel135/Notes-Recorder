@@ -7,11 +7,33 @@ Notes-Recorder application.
 
 # Import required modules
 import re
-from flask import Response, request, jsonify
+from flask import Response, request, jsonify, render_template
 
 # Import core extensions and models
 from core.extensions import app, db
-from core.models import Subject, Unit, Tag, get_tag_descendant_ids
+from core.models import Subject, Unit, Tag, Note, get_tag_descendant_ids
+from core.config import DEFAULT_PER_PAGE
+
+
+@app.route("/manage")
+def manage() -> str:
+    """
+    Render the Manage page for taxonomy and preferences (Step 8).
+
+    :return: The rendered manage template.
+    :rtype: str
+    """
+
+    return render_template(
+        "pages/manage.html",
+        counts={
+            "notes": Note.query.count(),
+            "subjects": Subject.query.count(),
+            "units": Unit.query.count(),
+            "tags": Tag.query.count(),
+        },
+        default_per_page=DEFAULT_PER_PAGE,
+    )
 
 
 @app.route("/api/subjects")

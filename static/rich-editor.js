@@ -1,11 +1,14 @@
 const EMPTY_RICH_NOTE_HTML = "<p><br></p>";
 
-let activeMathEditor = null;
-let editingMathSpan = null;
-let savedMathEditorRange = null;
-let mathQuillInterface = null;
-let modalMathField = null;
-let isSyncingMathLatex = false;
+// Step 9: var (not let) so the math-modal state is shared with editor-shell.js
+// via window.*. Function declarations below are already global for the same
+// reason; behavior is otherwise unchanged.
+var activeMathEditor = null;
+var editingMathSpan = null;
+var savedMathEditorRange = null;
+var mathQuillInterface = null;
+var modalMathField = null;
+var isSyncingMathLatex = false;
 
 // --- Shared helpers ---
 
@@ -84,7 +87,7 @@ function selectionRangeInEditor(editor) {
 function wrapSelectionWithElement(editor, element) {
     const range = selectionRangeInEditor(editor);
     if (!range || range.collapsed) {
-        alert("Select text to format first.");
+        window.nrToast.error("Select text to format first.");
         return false;
     }
 
@@ -222,18 +225,18 @@ function normalizeVideoEmbed(input) {
     return `<div class="rich-video-embed"><iframe src="${embedUrl}" title="${title}" width="560" height="315" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div><p><br></p>`;
 }
 
-function insertVideoEmbed(wrapper) {
+async function insertVideoEmbed(wrapper) {
     const editor = getRichEditorSurface(wrapper);
     if (!editor) {
         return;
     }
-    const embedInput = prompt("Paste a YouTube or Vimeo URL/embed code:");
+    const embedInput = await window.nrDialog.prompt({ title: "Insert video", label: "Paste a YouTube or Vimeo URL/embed code:", confirmText: "Insert" });
     if (embedInput === null) {
         return;
     }
     const html = normalizeVideoEmbed(embedInput);
     if (!html) {
-        alert("Use a YouTube or Vimeo URL/embed code.");
+        window.nrToast.error("Use a YouTube or Vimeo URL/embed code.");
         return;
     }
     insertHtmlAtCursor(editor, html);
@@ -318,7 +321,7 @@ function openMathEditor(editor, mathSpan = null) {
         return;
     }
     if (!initModalMathField()) {
-        alert("Math editor assets could not be loaded.");
+        window.nrToast.error("Math editor assets could not be loaded.");
         return;
     }
 
@@ -362,8 +365,8 @@ function clampInteger(value, min, max, fallback) {
     return Math.max(min, Math.min(max, number));
 }
 
-function promptTableDimension(label, fallback, min, max) {
-    const value = prompt(`${label}:`, String(fallback));
+async function promptTableDimension(label, fallback, min, max) {
+    const value = await window.nrDialog.prompt({ title: "Insert table", label: `${label}:`, value: String(fallback), confirmText: "Insert" });
     if (value === null) {
         return null;
     }
@@ -502,7 +505,7 @@ function deleteTableColumn(cell) {
 function mergeTableCellRight(cell) {
     const nextCell = cell.nextElementSibling;
     if (!nextCell || !["TD", "TH"].includes(nextCell.tagName)) {
-        alert("Select a cell with another cell to its right.");
+        window.nrToast.warning("Select a cell with another cell to its right.");
         return;
     }
 
@@ -515,13 +518,13 @@ function mergeTableCellDown(cell) {
     const row = cell.closest("tr");
     const nextRow = row ? row.nextElementSibling : null;
     if (!row || !nextRow) {
-        alert("Select a cell with another cell below it.");
+        window.nrToast.warning("Select a cell with another cell below it.");
         return;
     }
 
     const belowCell = getCellAtVisualColumn(nextRow, getVisualColumnIndex(cell));
     if (!belowCell || belowCell.colSpan !== cell.colSpan) {
-        alert("The cell below must align with the selected cell.");
+        window.nrToast.warning("The cell below must align with the selected cell.");
         return;
     }
 
@@ -539,7 +542,7 @@ function splitTableCell(cell) {
     const colSpan = cell.colSpan || 1;
     const rowSpan = cell.rowSpan || 1;
     if (colSpan === 1 && rowSpan === 1) {
-        alert("This cell is not merged.");
+        window.nrToast.warning("This cell is not merged.");
         return;
     }
 
@@ -560,7 +563,7 @@ function splitTableCell(cell) {
 function runTableCommand(wrapper, command) {
     const cell = getSelectedTableCell(wrapper);
     if (!cell) {
-        alert("Place the cursor inside a table cell first.");
+        window.nrToast.warning("Place the cursor inside a table cell first.");
         return;
     }
 
@@ -600,4 +603,38 @@ async function uploadRichNoteImage(file) {
         throw new Error(data.error || "Could not upload image.");
     }
     return response.json();
+}
+
+// --- MathQuill static rendering (moved here in Step 9 so every page shares
+// one global; previously duplicated in notes-list.js) ---
+
+function renderMathFields(root = document) {
+    const MQ = initMathQuill();
+    root.querySelectorAll('span.math-field[data-latex]').forEach(el => {
+        const latex = el.dataset.latex || "";
+        el.title = `LaTeX: ${latex}\n(Click to edit)`;
+        if (!MQ) {
+            el.textContent = `$${latex}$`;
+            return;
+        }
+        let existingMath = null;
+        try {
+            existingMath = MQ(el);
+        } catch (error) {
+            // Markup references MathQuill nodes never registered on this page;
+            // treat as stale and re-render below.
+            existingMath = null;
+        }
+        if (existingMath && existingMath.el() === el) {
+            existingMath.latex(latex);
+            return;
+        }
+        el.querySelectorAll('[mathquill-block-id], [mathquill-command-id]').forEach((node) => {
+            node.removeAttribute("mathquill-block-id");
+            node.removeAttribute("mathquill-command-id");
+        });
+        el.querySelectorAll(".mq-selectable, .mq-root-block").forEach((node) => node.remove());
+        el.textContent = latex;
+        MQ.StaticMath(el);
+    });
 }

@@ -1,16 +1,38 @@
-// --- Tag management ---
+/* Step 9: library taxonomy module (ported from notes-list-tags.js). Owns tag /
+ * subject / unit filter state, filter trees, the manage modals and the
+ * recorder subject radios. Tree rendering comes from ui/tree.js; deletes
+ * confirm via ui/dialog.js. Pages drive loading explicitly (no work at
+ * import beyond wiring present elements).
+ */
+import { escapeHtml } from '../utils.js';
+import {
+    buildTagTree,
+    flattenWithDepth,
+    renderCheckboxTree as renderCheckboxNodes,
+} from '../ui/tree.js';
+import { confirmDialog } from '../ui/dialog.js';
+import {
+    fetchAndRenderNotes,
+    currentPage,
+    selectedNoteIds,
+    updateSelectionUI,
+} from './library-list.js';
 
-let allTags = [];
-let selectedFilterTagIds = new Set();
+export let allTags = [];
+export let selectedFilterTagIds = new Set();
 let activeNoteTagsId = null;
-let allSubjects = [];
-let allUnits = [];
-let selectedFilterSubjects = new Set();
-let selectedFilterUnits = new Set();
-let selectedTranscriptionStatuses = new Set();
-let selectedKeyPointsStatuses = new Set();
+export let allSubjects = [];
+export let allUnits = [];
+export let selectedFilterSubjects = new Set();
+export let selectedFilterUnits = new Set();
+export let selectedTranscriptionStatuses = new Set();
+export let selectedKeyPointsStatuses = new Set();
 
-const DEFAULT_UNIT = "General";
+export function setActiveNoteTagsId(id) {
+    activeNoteTagsId = id;
+}
+
+export const DEFAULT_UNIT = "General";
 
 function buildUnitsBySubjectName() {
     const map = {};
@@ -23,62 +45,45 @@ function buildUnitsBySubjectName() {
     return map;
 }
 
-function updateTranscriptionStatusFilterCount() {
+export function updateTranscriptionStatusFilterCount() {
     const badge = document.getElementById("transcription-status-filter-count");
+    if (!badge) {
+        return;
+    }
     badge.textContent = String(selectedTranscriptionStatuses.size);
     badge.classList.toggle("d-none", selectedTranscriptionStatuses.size === 0);
 }
 
-function updateKeyPointsStatusFilterCount() {
+export function updateKeyPointsStatusFilterCount() {
     const badge = document.getElementById("key-points-status-filter-count");
+    if (!badge) {
+        return;
+    }
     badge.textContent = String(selectedKeyPointsStatuses.size);
     badge.classList.toggle("d-none", selectedKeyPointsStatuses.size === 0);
 }
 
-function syncTranscriptionStatusCheckboxes() {
+export function syncTranscriptionStatusCheckboxes() {
     document.querySelectorAll(".transcription-status-checkbox").forEach((checkbox) => {
         checkbox.checked = selectedTranscriptionStatuses.has(checkbox.value);
     });
 }
 
-function syncKeyPointsStatusCheckboxes() {
+export function syncKeyPointsStatusCheckboxes() {
     document.querySelectorAll(".key-points-status-checkbox").forEach((checkbox) => {
         checkbox.checked = selectedKeyPointsStatuses.has(checkbox.value);
     });
 }
 
-function buildTagTree(flatTags) {
-    const byId = new Map(flatTags.map((tag) => [tag.id, { ...tag, children: [] }]));
-    const roots = [];
-    byId.forEach((node) => {
-        if (node.parent_id && byId.has(node.parent_id)) {
-            byId.get(node.parent_id).children.push(node);
-        } else {
-            roots.push(node);
-        }
-    });
-    return roots;
-}
-
-function flattenWithDepth(nodes, depth = 0, out = []) {
-    nodes.forEach((node) => {
-        out.push({ id: node.id, name: node.name, depth });
-        flattenWithDepth(node.children, depth + 1, out);
-    });
-    return out;
-}
-
-function renderCheckboxNodes(nodes, checkedIds, cssPrefix) {
-    return nodes.map((node) => `
-        <li>
-            <label class="d-flex align-items-center gap-2">
-                <input type="checkbox" class="${cssPrefix}-checkbox" value="${node.id}"
-                    ${checkedIds.has(node.id) ? "checked" : ""}>
-                <span class="tag-badge" style="background-color:${node.color}">${escapeHtml(node.name)}</span>
-            </label>
-            ${node.children.length ? `<ul class="tag-children">${renderCheckboxNodes(node.children, checkedIds, cssPrefix)}</ul>` : ""}
-        </li>
-    `).join("");
+export function renderFilterTagTree() {
+    const tree = buildTagTree(allTags);
+    const container = document.getElementById("filter-tag-tree");
+    if (!container) {
+        return;
+    }
+    container.innerHTML = tree.length
+        ? `<ul class="tag-tree">${renderCheckboxNodes(tree, selectedFilterTagIds, "filter-tag")}</ul>`
+        : '<p class="text-muted small mb-0">No tags yet.</p>';
 }
 
 function renderManageNodes(nodes) {
@@ -91,8 +96,8 @@ function renderManageNodes(nodes) {
                 <button type="button" class="btn btn-link btn-sm p-0 text-danger tag-delete-btn" data-tag-id="${node.id}">Delete</button>
             </div>
             <div class="tag-row-edit d-none" data-tag-id="${node.id}">
-                <input type="text" class="form-control form-control-sm tag-edit-name" style="width:140px" value="${escapeHtml(node.name)}">
-                <input type="color" class="form-control form-control-color form-control-sm tag-edit-color" value="${node.color}">
+                <input type="text" class="form-control form-control-sm tag-edit-name" style="width:140px" value="${escapeHtml(node.name)}" aria-label="Tag name">
+                <input type="color" class="form-control form-control-color form-control-sm tag-edit-color" value="${node.color}" aria-label="Tag color">
                 <button type="button" class="btn btn-sm btn-primary tag-save-btn" data-tag-id="${node.id}">Save</button>
                 <button type="button" class="btn btn-sm btn-secondary tag-cancel-btn" data-tag-id="${node.id}">Cancel</button>
             </div>
@@ -104,6 +109,9 @@ function renderManageNodes(nodes) {
 function renderManageTagTree() {
     const tree = buildTagTree(allTags);
     const container = document.getElementById("tag-tree-manage");
+    if (!container) {
+        return;
+    }
     container.innerHTML = tree.length
         ? `<ul class="tag-tree">${renderManageNodes(tree)}</ul>`
         : '<p class="text-muted small">No tags yet.</p>';
@@ -111,6 +119,9 @@ function renderManageTagTree() {
 
 function renderParentOptions() {
     const select = document.getElementById("new-tag-parent");
+    if (!select) {
+        return;
+    }
     const previousValue = select.value;
     const flat = flattenWithDepth(buildTagTree(allTags));
     select.innerHTML = '<option value="">(top-level)</option>' +
@@ -118,31 +129,33 @@ function renderParentOptions() {
     select.value = previousValue;
 }
 
-function renderFilterTagTree() {
-    const tree = buildTagTree(allTags);
-    const container = document.getElementById("filter-tag-tree");
-    container.innerHTML = tree.length
-        ? `<ul class="tag-tree">${renderCheckboxNodes(tree, selectedFilterTagIds, "filter-tag")}</ul>`
-        : '<p class="text-muted small mb-0">No tags yet.</p>';
-}
-
-function renderNoteTagTree(checkedIds) {
+export function renderNoteTagTree(checkedIds) {
     const tree = buildTagTree(allTags);
     const container = document.getElementById("note-tag-tree");
+    if (!container) {
+        return;
+    }
     container.innerHTML = tree.length
         ? `<ul class="tag-tree">${renderCheckboxNodes(tree, checkedIds, "note-tag")}</ul>`
         : '<p class="text-muted small mb-0">No tags yet. Create some via Manage Tags.</p>';
 }
 
-function updateTagFilterCount() {
+export function updateTagFilterCount() {
     const badge = document.getElementById("tag-filter-count");
+    if (!badge) {
+        return;
+    }
     badge.textContent = String(selectedFilterTagIds.size);
     badge.classList.toggle("d-none", selectedFilterTagIds.size === 0);
 }
 
 function renderSubjectRadios() {
     const container = document.getElementById("subject-radio-group");
-    const previousValue = getSelectedSubject();
+    if (!container) {
+        return; // recorder-only element; absent on pages without the record card.
+    }
+    const previous = container.querySelector("input[name='subject']:checked");
+    const previousValue = previous ? previous.value : "";
     container.innerHTML = allSubjects.map((subject, index) => `
         <div class="form-check form-check-inline mb-0">
             <input class="form-check-input" type="radio" name="subject" id="subject-${index}"
@@ -150,14 +163,18 @@ function renderSubjectRadios() {
             <label class="form-check-label small" for="subject-${index}">${escapeHtml(subject.name)}</label>
         </div>
     `).join("") + "<button type='reset' class='btn btn-sm btn-outline-secondary'>Clear</button>";
-    const toReselect = container.querySelector(`input[value="${CSS.escape(previousValue)}"]`);
+    const safePrevious = previousValue.replace(/["\\]/g, '\\$&');
+    const toReselect = container.querySelector(`input[value="${safePrevious}"]`);
     if (toReselect) {
         toReselect.checked = true;
     }
 }
 
-function renderFilterSubjectList() {
+export function renderFilterSubjectList() {
     const container = document.getElementById("filter-subject-list");
+    if (!container) {
+        return;
+    }
     if (!allSubjects.length) {
         container.innerHTML = '<p class="text-muted small mb-0">No subjects yet.</p>';
         return;
@@ -189,8 +206,11 @@ function renderFilterSubjectList() {
     }).join("")}</ul>`;
 }
 
-function updateSubjectFilterCount() {
+export function updateSubjectFilterCount() {
     const badge = document.getElementById("subject-filter-count");
+    if (!badge) {
+        return;
+    }
     const count = selectedFilterSubjects.size + selectedFilterUnits.size;
     badge.textContent = String(count);
     badge.classList.toggle("d-none", count === 0);
@@ -198,6 +218,9 @@ function updateSubjectFilterCount() {
 
 function renderSubjectManageList() {
     const list = document.getElementById("subject-list-manage");
+    if (!list) {
+        return;
+    }
     list.innerHTML = allSubjects.length
         ? allSubjects.map((subject) => {
             const units = allUnits
@@ -237,7 +260,7 @@ function renderSubjectManageList() {
         : '<li class="list-group-item text-muted small">No subjects yet.</li>';
 }
 
-async function loadSubjects() {
+export async function loadSubjects() {
     const [subjectsResponse, unitsResponse] = await Promise.all([
         fetch("/api/subjects"),
         fetch("/api/units"),
@@ -246,10 +269,10 @@ async function loadSubjects() {
         return;
     }
     const subjectsData = await subjectsResponse.json();
-    allSubjects = subjectsData.subjects;
+    allSubjects = subjectsData.subjects || [];
     if (unitsResponse.ok) {
         const unitsData = await unitsResponse.json();
-        allUnits = unitsData.units;
+        allUnits = unitsData.units || [];
     } else {
         allUnits = [];
     }
@@ -258,7 +281,7 @@ async function loadSubjects() {
     renderFilterSubjectList();
 }
 
-document.getElementById("manage-subjects-modal").addEventListener("click", async (event) => {
+document.getElementById("manage-subjects-modal")?.addEventListener("click", async (event) => {
     const deleteBtn = event.target.closest(".subject-delete-btn");
     const addBtn = event.target.closest("#add-subject-btn");
     const toggleUnitsBtn = event.target.closest(".toggle-subject-units-btn");
@@ -268,7 +291,12 @@ document.getElementById("manage-subjects-modal").addEventListener("click", async
 
     if (deleteBtn) {
         const subjectId = deleteBtn.dataset.subjectId;
-        if (!confirm("Delete this subject?")) {
+        if (!await confirmDialog({
+            title: "Delete subject",
+            body: "Delete this subject?",
+            confirmText: "Delete",
+            danger: true,
+        })) {
             return;
         }
         await fetch(`/api/subjects/${subjectId}/delete`, { method: "POST" });
@@ -333,7 +361,12 @@ document.getElementById("manage-subjects-modal").addEventListener("click", async
 
     if (unitDeleteBtn) {
         const unitId = unitDeleteBtn.dataset.unitId;
-        if (!confirm("Delete this unit? Recordings assigned to it will keep the unit name.")) {
+        if (!await confirmDialog({
+            title: "Delete unit",
+            body: "Delete this unit? Recordings assigned to it will keep the unit name.",
+            confirmText: "Delete",
+            danger: true,
+        })) {
             return;
         }
         await fetch(`/api/units/${unitId}/delete`, { method: "POST" });
@@ -342,7 +375,7 @@ document.getElementById("manage-subjects-modal").addEventListener("click", async
     }
 });
 
-async function loadTags() {
+export async function loadTags() {
     const response = await fetch("/api/tags");
     if (!response.ok) {
         return;
@@ -354,7 +387,7 @@ async function loadTags() {
     renderFilterTagTree();
 }
 
-document.getElementById("filter-tag-tree").addEventListener("change", (event) => {
+document.getElementById("filter-tag-tree")?.addEventListener("change", (event) => {
     const checkbox = event.target.closest(".filter-tag-checkbox");
     if (!checkbox) {
         return;
@@ -369,7 +402,7 @@ document.getElementById("filter-tag-tree").addEventListener("change", (event) =>
     fetchAndRenderNotes(1);
 });
 
-document.getElementById("filter-subject-list").addEventListener("change", (event) => {
+document.getElementById("filter-subject-list")?.addEventListener("change", (event) => {
     const subjectCheckbox = event.target.closest(".filter-subject-checkbox");
     const unitCheckbox = event.target.closest(".filter-unit-checkbox");
 
@@ -396,7 +429,7 @@ document.getElementById("filter-subject-list").addEventListener("change", (event
     }
 });
 
-document.getElementById("transcription-status-filter-list").addEventListener("change", (event) => {
+document.getElementById("transcription-status-filter-list")?.addEventListener("change", (event) => {
     const checkbox = event.target.closest(".transcription-status-checkbox");
     if (!checkbox) {
         return;
@@ -410,7 +443,7 @@ document.getElementById("transcription-status-filter-list").addEventListener("ch
     fetchAndRenderNotes(1);
 });
 
-document.getElementById("key-points-status-filter-list").addEventListener("change", (event) => {
+document.getElementById("key-points-status-filter-list")?.addEventListener("change", (event) => {
     const checkbox = event.target.closest(".key-points-status-checkbox");
     if (!checkbox) {
         return;
@@ -424,11 +457,11 @@ document.getElementById("key-points-status-filter-list").addEventListener("chang
     fetchAndRenderNotes(1);
 });
 
-document.getElementById("empty-notes-filter").addEventListener("change", () => {
+document.getElementById("empty-notes-filter")?.addEventListener("change", () => {
     fetchAndRenderNotes(1);
 });
 
-document.getElementById("manage-tags-modal").addEventListener("click", async (event) => {
+document.getElementById("manage-tags-modal")?.addEventListener("click", async (event) => {
     const addChildBtn = event.target.closest(".tag-add-child-btn");
     const editBtn = event.target.closest(".tag-edit-btn");
     const cancelBtn = event.target.closest(".tag-cancel-btn");
@@ -484,7 +517,12 @@ document.getElementById("manage-tags-modal").addEventListener("click", async (ev
 
     if (deleteBtn) {
         const tagId = deleteBtn.dataset.tagId;
-        if (!confirm("Delete this tag and all of its subtags?")) {
+        if (!await confirmDialog({
+            title: "Delete tag",
+            body: "Delete this tag and all of its subtags?",
+            confirmText: "Delete",
+            danger: true,
+        })) {
             return;
         }
         await fetch(`/api/tags/${tagId}/delete`, { method: "POST" });
@@ -518,7 +556,7 @@ document.getElementById("manage-tags-modal").addEventListener("click", async (ev
     }
 });
 
-document.getElementById("save-note-tags-btn").addEventListener("click", async () => {
+document.getElementById("save-note-tags-btn")?.addEventListener("click", async () => {
     const checkboxes = document.querySelectorAll("#note-tag-tree .note-tag-checkbox:checked");
     const tagIds = Array.from(checkboxes).map((checkbox) => Number(checkbox.value));
     const errorBox = document.getElementById("note-tags-error");
@@ -539,55 +577,4 @@ document.getElementById("save-note-tags-btn").addEventListener("click", async ()
         errorBox.textContent = error.message;
         errorBox.classList.remove("d-none");
     }
-});
-
-loadTags();
-loadSubjects().then(restoreActiveRecordingIfNeeded);
-
-document.addEventListener('DOMContentLoaded', () => {
-    const mathModalEl = document.getElementById('math-editor-modal');
-    if (!mathModalEl) return;
-
-    const latexInput = document.getElementById('math-editor-latex');
-    const insertBtn = document.getElementById('insert-math-btn');
-    if (!initModalMathField()) {
-        document.querySelectorAll('.rich-math-btn').forEach((button) => {
-            button.disabled = true;
-            button.title = "MathQuill could not be loaded.";
-        });
-        return;
-    }
-
-    mathModalEl.addEventListener('shown.bs.modal', () => {
-        setTimeout(() => {
-            modalMathField.focus();
-            modalMathField.reflow();
-        }, 100);
-    });
-
-    latexInput.addEventListener('input', syncModalFieldFromLatexInput);
-
-    insertBtn.addEventListener('click', () => {
-        const latex = modalMathField.latex().trim();
-        if (editingMathSpan) {
-            const editor = editingMathSpan.closest('.rich-notes-surface');
-            if (latex) {
-                editingMathSpan.dataset.latex = latex;
-                renderMathFields(editingMathSpan.parentElement);
-            } else {
-                editingMathSpan.remove();
-            }
-            if (editor) editor.dispatchEvent(new Event("input", { bubbles: true }));
-        } else if (activeMathEditor && latex) {
-            const id = `math-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-            const html = `<span id="${id}" class="math-field" data-latex="${escapeHtml(latex)}" contenteditable="false"></span>`;
-            restoreMathEditorSelection(activeMathEditor);
-            insertHtmlAtCursor(activeMathEditor, html + '&nbsp;');
-            renderMathFields(activeMathEditor);
-        }
-        bootstrap.Modal.getInstance(mathModalEl).hide();
-        editingMathSpan = null;
-        activeMathEditor = null;
-        savedMathEditorRange = null;
-    });
 });

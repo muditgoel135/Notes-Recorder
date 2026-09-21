@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Manage{% endblock %}
+{% block content %}
+<div class="container py-4">
+    <div class="mb-3">
+        <h1 class="h4 mb-1">Manage</h1>
+        <p class="text-muted mb-0">Subjects, units, tags, preferences and storage.</p>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-12 col-lg-6">
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h2 class="h5">Subjects &amp; units</h2>
+                    <ul class="list-group mb-3" id="subject-list-manage">
+                        <li class="list-group-item text-muted small">Loading subjects...</li>
+                    </ul>
+                    <div class="small text-muted mb-1">Add subject</div>
+                    <div class="d-flex gap-2 align-items-end">
+                        <input type="text" id="new-subject-name" class="form-control form-control-sm"
+                            maxlength="100" aria-label="New subject name">
+                        <button type="button" id="add-subject-btn"
+                            class="btn btn-sm btn-primary text-nowrap">Add</button>
+                    </div>
+                    <div class="small text-danger mt-2 d-none" id="subject-manage-error"></div>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h2 class="h5">Tags</h2>
+                    <div id="tag-tree-manage">
+                        <p class="text-muted small">Loading tags...</p>
+                    </div>
+                    <hr>
+                    <div class="small text-muted mb-1">Add tag</div>
+                    <div class="d-flex gap-2 align-items-end flex-wrap">
+                        <div>
+                            <label class="form-label small mb-1" for="new-tag-name">Name</label>
+                            <input type="text" id="new-tag-name" class="form-control form-control-sm" maxlength="100">
+                        </div>
+                        <div>
+                            <label class="form-label small mb-1" for="new-tag-color">Color</label>
+                            <input type="color" id="new-tag-color"
+                                class="form-control form-control-color form-control-sm" value="#3366cc">
+                        </div>
+                        <div>
+                            <label class="form-label small mb-1" for="new-tag-parent">Parent</label>
+                            <select id="new-tag-parent" class="form-select form-select-sm">
+                                <option value="">(top-level)</option>
+                            </select>
+                        </div>
+                        <button type="button" id="add-tag-btn" class="btn btn-sm btn-primary">Add</button>
+                    </div>
+                    <div class="small text-danger mt-2 d-none" id="tag-manage-error"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-lg-6">
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h2 class="h5">Preferences</h2>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="prefs-sync" checked>
+                        <label class="form-check-label small" for="prefs-sync">Sync transcript with audio
+                            playback</label>
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-label small mb-1">Color theme</div>
+                        <div class="btn-group btn-group-sm" role="group" aria-label="Color theme">
+                            <input type="radio" class="btn-check" name="prefs-theme" id="prefs-theme-light"
+                                value="light">
+                            <label class="btn btn-outline-secondary" for="prefs-theme-light">Light</label>
+                            <input type="radio" class="btn-check" name="prefs-theme" id="prefs-theme-dark"
+                                value="dark">
+                            <label class="btn btn-outline-secondary" for="prefs-theme-dark">Dark</label>
+                            <input type="radio" class="btn-check" name="prefs-theme" id="prefs-theme-auto"
+                                value="auto">
+                            <label class="btn btn-outline-secondary" for="prefs-theme-auto">Auto</label>
+                        </div>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="prefs-density-compact">
+                        <label class="form-check-label small" for="prefs-density-compact">Compact density in the
+                            Library</label>
+                    </div>
+                    <p class="small text-muted mb-0">Library page size: {{ default_per_page }} per page
+                        (server setting, change requires a restart).</p>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h2 class="h5">Storage</h2>
+                    <dl class="row small mb-0">
+                        <dt class="col-sm-6">Recordings</dt>
+                        <dd class="col-sm-6">{{ counts.notes }}</dd>
+                        <dt class="col-sm-6">Subjects</dt>
+                        <dd class="col-sm-6" id="storage-subjects">{{ counts.subjects }}</dd>
+                        <dt class="col-sm-6">Units</dt>
+                        <dd class="col-sm-6" id="storage-units">{{ counts.units }}</dd>
+                        <dt class="col-sm-6">Tags</dt>
+                        <dd class="col-sm-6" id="storage-tags">{{ counts.tags }}</dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='js/pages/manage.js') }}"></script>
+{% endblock %}

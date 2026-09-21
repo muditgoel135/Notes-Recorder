@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% set chat_scope = true %}
+{% block title %}Chat with Recordings{% endblock %}
+{% block content %}
+<div class="container-fluid py-4 px-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <div>
+            <h1 class="h3 mb-1">Chat with recordings</h1>
+            <div class="text-muted">Choose transcript-ready recordings, then ask questions using Ollama.</div>
+        </div>
+        <div class="d-flex gap-2">
+            <button id="chats-toggle-btn" type="button" class="btn btn-outline-secondary btn-sm d-xl-none"
+                data-bs-toggle="offcanvas" data-bs-target="#chats-offcanvas" aria-controls="chats-offcanvas">
+                Chats
+            </button>
+        </div>
+    </div>
+
+    <div class="row g-2 mb-3 align-items-end">
+        <div class="col-12">
+            <label for="search-input" class="form-label small mb-1">Search
+                <kbd class="ms-1">/</kbd></label>
+            <input type="search" id="search-input" class="form-control"
+                placeholder="Search title, transcript, subject, key points...">
+        </div>
+    </div>
+
+    <section class="card mb-3" id="chat-filters-top" aria-label="Filters">
+        <div class="card-body">
+            {% include "partials/_filters.html" %}
+        </div>
+    </section>
+
+    <div class="row g-3 chat-page-layout">
+        <aside class="col-12 col-xl-2" aria-label="Chats">
+            <div class="offcanvas-xl offcanvas-start" tabindex="-1" id="chats-offcanvas"
+                aria-labelledby="chats-offcanvas-label">
+                <div class="offcanvas-header d-xl-none">
+                    <h2 class="h5 mb-0" id="chats-offcanvas-label">Chats</h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="offcanvas"
+                        data-bs-target="#chats-offcanvas" aria-label="Close chats"></button>
+                </div>
+                <div class="offcanvas-body d-block">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="fw-semibold">Chats</div>
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="new-chat-btn">New</button>
+                    </div>
+                    <div id="chat-session-list" class="list-group chat-session-list">
+                        <div class="text-muted small">Loading chats...</div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <section class="col-12 col-lg-4 col-xl-3" aria-label="Recordings">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div class="fw-semibold">Recordings</div>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="select-chat-all-btn">
+                        Select all
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="refresh-chat-recordings-btn">
+                        Refresh
+                    </button>
+                </div>
+            </div>
+            <div id="chat-recording-list" class="chat-recording-list">
+                <div class="text-muted small">Loading recordings...</div>
+            </div>
+            <button type="button" class="btn btn-primary btn-sm mt-3" id="create-chat-session-btn">
+                Start chat
+            </button>
+            <div class="small text-danger mt-2 d-none" id="chat-picker-error"></div>
+        </section>
+
+        <main class="col-12 col-lg-8 col-xl-7">
+            <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                <div>
+                    <div class="fw-semibold" id="active-chat-title">No chat selected</div>
+                    <div class="small text-muted" id="active-chat-recordings"></div>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-secondary d-none" id="rename-chat-btn">
+                    Rename
+                </button>
+            </div>
+            <div id="chat-messages" class="chat-messages mb-3">
+                <div class="text-muted small">Pick transcript-ready recordings on the left, then press
+                    Start chat — or open an existing chat.</div>
+            </div>
+            <form id="chat-message-form" class="d-flex gap-2">
+                <textarea class="form-control" id="chat-message-input" rows="2"
+                    placeholder="Ask about the selected recordings..." disabled></textarea>
+                <button type="submit" class="btn btn-primary" id="send-chat-message-btn" disabled>Send</button>
+            </form>
+            <div class="small text-danger mt-2 d-none" id="chat-message-error"></div>
+        </main>
+    </div>
+</div>
+
+<div class="modal fade" id="chat-rename-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Rename chat</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <label class="form-label small" for="chat-rename-input">Chat title</label>
+                <input type="text" id="chat-rename-input" class="form-control" maxlength="200">
+                <div class="small text-danger mt-2 d-none" id="chat-rename-error"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="chat-rename-save">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='js/pages/chat-page.js') }}"></script>
+{% endblock %}

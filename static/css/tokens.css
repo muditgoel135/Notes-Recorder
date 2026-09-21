@@ -1,0 +1,47 @@
+/* Step 2: design tokens. Light values mirror legacy style.css so the
+ * light theme is pixel-identical; dark values are AA-checked pairs. */
+:root,
+[data-bs-theme="light"] {
+    --nr-bg: var(--bs-body-bg);
+    --nr-surface: #fff;
+    --nr-toolbar-bg: #f8f9fa;
+    --nr-menu-bg: #fff;
+    --nr-pre-bg: #f1f3f5;
+    --nr-th-bg: #f1f3f5;
+    --nr-row-alt-bg: #f8f9fa;
+    --nr-border: #dee2e6;
+    --nr-text-muted: var(--bs-secondary-color);
+    --nr-accent: var(--bs-primary);
+    --nr-active-word-bg: #fff3a0;
+    --nr-active-word-text: #212529;
+    --nr-chip-bg: #fff8e1;
+    --nr-chip-hover-bg: #ffecb3;
+    --nr-chip-border: #ffc107;
+    --nr-chip-text: #664d03;
+    --nr-pinned-bg: #f0f6ff;
+    --nr-chat-pane-bg: #f8f9fa;
+    --nr-chat-user-bg: #e7f1ff;
+    --nr-chat-user-border: #b6d4fe;
+    --nr-chat-assistant-bg: #fff;
+}
+
+[data-bs-theme="dark"] {
+    --nr-surface: #2b3035;
+    --nr-toolbar-bg: #2b3035;
+    --nr-menu-bg: #2b3035;
+    --nr-pre-bg: #1e2124;
+    --nr-th-bg: #2b3035;
+    --nr-row-alt-bg: transparent;
+    --nr-border: #495057;
+    --nr-active-word-bg: #664d03;
+    --nr-active-word-text: #ffecb5;
+    --nr-chip-bg: #332701;
+    --nr-chip-hover-bg: #4a3800;
+    --nr-chip-border: #ffda6a;
+    --nr-chip-text: #ffda6a;
+    --nr-pinned-bg: #0f2743;
+    --nr-chat-pane-bg: #212529;
+    --nr-chat-user-bg: #0a2f5c;
+    --nr-chat-user-border: #0d4a8f;
+    --nr-chat-assistant-bg: #2b3035;
+}

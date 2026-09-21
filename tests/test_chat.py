@@ -524,6 +524,84 @@ def test_api_chat_recordings_completed_only(test_app):
     assert titles == ["Ready"]
 
 
+def test_create_chat_session_requires_transcript(test_app):
+    pending = _create_note(db.session, title="Pending", transcription_status="pending",
+                           transcription=None)
+    response = test_app.test_client().post(
+        "/api/chat/sessions", json={"note_ids": [pending.id]})
+    assert response.status_code == 400
+    assert test_app.test_client().post(
+        "/api/chat/sessions/9999/messages", json={"message": "hi"}).status_code == 404
+
+
+def test_chat_end_to_end(test_app, monkeypatch):
+    """Full mechanism: discover -> filter -> start -> ask -> reopen -> rename."""
+    note = _create_note(
+        db.session,
+        title="E2E Note",
+        transcription="photosynthesis converts light into sugar",
+    )
+    client = test_app.test_client()
+
+    # 1. Discover: the transcript-ready note is listed.
+    found = client.get("/api/chat/recordings")
+    assert found.status_code == 200
+    assert note.id in [r["id"] for r in found.json["recordings"]]
+
+    # 2. Filter: a matching query keeps it, a junk query drops it.
+    matching = client.get("/api/chat/recordings?q=photosynthesis")
+    assert note.id in [r["id"] for r in matching.json["recordings"]]
+    assert client.get("/api/chat/recordings?q=zzz-no-match").json["recordings"] == []
+
+    # 3. Start: create a session from the selection.
+    created = client.post("/api/chat/sessions", json={"note_ids": [note.id]})
+    assert created.status_code == 200
+    session_id = created.json["session"]["id"]
+    assert created.json["session"]["title"] == "E2E Note"
+
+    # 4. Ask: mocked Ollama answers, both messages persist.
+    monkeypatch.setattr(
+        _chat(), "call_ollama_for_chat", lambda session: ("Light drives it.", None)
+    )
+    sent = client.post(
+        f"/api/chat/sessions/{session_id}/messages", json={"message": "summarize"}
+    )
+    assert sent.status_code == 200
+    assert sent.json["message"]["role"] == "assistant"
+    assert sent.json["message"]["content"] == "Light drives it."
+
+    # 5. Reopen: the session shows the full exchange.
+    opened = client.get(f"/api/chat/sessions/{session_id}")
+    assert opened.status_code == 200
+    contents = [(m["role"], m["content"]) for m in opened.json["session"]["messages"]]
+    assert ("user", "summarize") in contents
+    assert ("assistant", "Light drives it.") in contents
+
+    # 6. Rename: title updates and the sessions list reflects it.
+    renamed = client.post(
+        f"/api/chat/sessions/{session_id}/title", json={"title": "E2E Renamed"}
+    )
+    assert renamed.status_code == 200
+    assert renamed.json["session"]["title"] == "E2E Renamed"
+    listed = client.get("/api/chat/sessions")
+    assert any(s["title"] == "E2E Renamed" for s in listed.json["sessions"])
+
+
 def test_render_markdown_used_by_serializer():
     # Sanity check that render_markdown is importable for assistant html.
     assert callable(render_markdown)
+
+
+def test_chat_recording_preview_has_no_markdown(test_app):
+    _create_note(
+        db.session,
+        title="Preview Note",
+        transcription_status=TRANSCRIPTION_COMPLETED,
+        transcription="plain transcript",
+        key_points="## Life Expectancy\nDeterminants - **bold** point",
+    )
+    response = test_app.test_client().get("/api/chat/recordings")
+    assert response.status_code == 200
+    previews = [r["preview"] for r in response.json["recordings"]]
+    assert previews == ["Life Expectancy\nDeterminants - bold point"]
+    assert all("##" not in p and "**" not in p for p in previews)

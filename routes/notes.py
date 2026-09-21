@@ -13,6 +13,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from flask import (
     render_template,
+    render_template_string,
     request,
     redirect,
     url_for,
@@ -77,9 +78,37 @@ def units_by_subject_map() -> dict[str, list[str]]:
 @app.route("/")
 def index() -> str:
     """
-    Render the notes index page with optional filters.
+    Render the capture-only recorder page.
 
-    :return: The rendered index template.
+    The recordings list moved to ``/notes`` (see :func:`library`); this view
+    keeps the record/upload lifecycle plus a lightweight recent-notes strip.
+
+    :return: The rendered recorder template.
+    :rtype: str
+    """
+
+    has_active_transcription = check_has_active_transcription()
+    recent_notes = Note.query.order_by(Note.id.desc()).limit(3).all()
+
+    return render_template(
+        "pages/recorder.html",
+        recent_notes=recent_notes,
+        has_active_transcription=has_active_transcription,
+        subjects=Subject.query.order_by(Subject.name).all(),
+        units_by_subject=units_by_subject_map(),
+    )
+
+
+@app.route("/notes")
+def library() -> str:
+    """
+    Render the recordings library page with optional filters.
+
+    INTERIM (Step 3): same server-side filtering/pagination the old index
+    page had; renders the legacy list include unchanged. Step 4 replaces
+    the template with the Library UI.
+
+    :return: The rendered library template.
     :rtype: str
     """
 
@@ -108,7 +137,7 @@ def index() -> str:
     )
 
     return render_template(
-        "index.html",
+        "pages/library.html",
         notes=pagination.items,
         page=pagination.page,
         total_pages=pagination.pages or 1,
@@ -118,6 +147,50 @@ def index() -> str:
         subjects=Subject.query.order_by(Subject.name).all(),
         units_by_subject=units_by_subject_map(),
         sort_by=filters["sort"],
+    )
+
+
+@app.route("/notes/<int:note_id>")
+def note_detail(note_id: int) -> str:
+    """
+    Render the detail page for a single note (Step 6).
+
+    Prev/next neighbors are computed in the same filter context as the
+    Library (reusing the listing query), so the pager follows the user's
+    current search/filter/sort.
+
+    :param note_id: ID of the note.
+    :type note_id: int
+    :return: The rendered detail template.
+    :rtype: str
+    """
+
+    note = Note.query.get_or_404(note_id)
+    filters = parse_notes_filters_from_request()
+    rows = build_notes_query(**filters).with_entities(Note.id).all()
+    ordered_ids = [row.id for row in rows]
+    prev_id = next_id = None
+    if note_id in ordered_ids:
+        position = ordered_ids.index(note_id)
+        if position > 0:
+            prev_id = ordered_ids[position - 1]
+        if position + 1 < len(ordered_ids):
+            next_id = ordered_ids[position + 1]
+
+    query_string = request.query_string.decode("utf-8", errors="ignore")
+    suffix = f"?{query_string}" if query_string else ""
+    back_url = f"{url_for('library')}{suffix}"
+
+    return render_template(
+        "pages/note_detail.html",
+        note=note,
+        prev_id=prev_id,
+        next_id=next_id,
+        query_suffix=suffix,
+        back_url=back_url,
+        has_active_transcription=check_has_active_transcription(),
+        subjects=Subject.query.order_by(Subject.name).all(),
+        units_by_subject=units_by_subject_map(),
     )
 
 
@@ -154,7 +227,7 @@ def api_notes() -> Response:
     )
 
     html = render_template(
-        "_notes_list.html",
+        "partials/_library_results.html",
         notes=pagination.items,
         page=pagination.page,
         total_pages=pagination.pages or 1,
@@ -187,6 +260,75 @@ def api_notes_ids() -> Response:
     filters = parse_notes_filters_from_request()
     rows = build_notes_query(**filters).with_entities(Note.id).all()
     return jsonify({"ids": [row.id for row in rows]})
+
+
+@app.route("/api/notes/status")
+def api_notes_status() -> Response:
+    """
+    Return lightweight transcription/key-points status for notes (Step 5).
+
+    Poll-friendly: only status columns are selected, never transcript or
+    key-points bodies. Accepts an optional ``?ids=1,2,3`` filter; without it
+    all notes are returned.
+
+    :return: A JSON response with per-note status plus a worker-activity flag.
+    :rtype: flask.Response
+    """
+
+    ids_param = request.args.get("ids", "").strip()
+    query = Note.query.with_entities(
+        Note.id,
+        Note.transcription_status,
+        Note.transcription_progress,
+        Note.transcription_stage,
+        Note.key_points_status,
+    )
+    if ids_param:
+        try:
+            wanted = [int(part) for part in ids_param.split(",") if part.strip()]
+        except ValueError:
+            return jsonify({"error": "Invalid ids."}), 400
+        query = query.filter(Note.id.in_(wanted))
+    rows = query.order_by(Note.id).all()
+    return jsonify(
+        {
+            "notes": [
+                {
+                    "id": row.id,
+                    "transcription_status": row.transcription_status,
+                    "transcription_progress": row.transcription_progress or 0,
+                    "transcription_stage": row.transcription_stage,
+                    "key_points_status": row.key_points_status,
+                }
+                for row in rows
+            ],
+            "has_active_transcription": check_has_active_transcription(),
+        }
+    )
+
+
+@app.route("/api/notes/card")
+def api_note_card() -> Response:
+    """
+    Return the rendered library card for a single note (Step 5).
+
+    Used to swap a card in place when its transcription completes, without
+    re-rendering the whole list.
+
+    :return: A JSON response with the card HTML, or 404/400.
+    :rtype: flask.Response
+    """
+
+    note_id = request.args.get("id", type=int)
+    if not note_id:
+        return jsonify({"error": "Missing id."}), 400
+    note = Note.query.get_or_404(note_id)
+    html = render_template_string(
+        "{% import 'partials/_note_card.html' as cards %}"
+        "{{ cards.render_note_card(note) }}",
+        note=note,
+    )
+    return jsonify({"id": note.id, "html": html})
 
 
 @app.route("/api/note_images", methods=["POST"])
@@ -567,11 +709,12 @@ def update_note(note_id: int) -> Response:
 
     note = Note.query.get_or_404(note_id)
     data = request.get_json(silent=True) or {}
-    title = (data.get("title") or "").strip()
-    key_points = (data.get("key_points") or "").strip()
-
-    note.title = title[:200] or None
-    note.key_points = key_points or None
+    # Step 6: partial updates — only overwrite keys the client sent, so a
+    # title-only edit cannot wipe key points (legacy callers send both keys).
+    if "title" in data:
+        note.title = (data.get("title") or "").strip()[:200] or None
+    if "key_points" in data:
+        note.key_points = (data.get("key_points") or "").strip() or None
     refresh_note_search_index(note)
     db.session.commit()
     return jsonify({"message": "Note updated."})

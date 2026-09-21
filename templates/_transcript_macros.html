@@ -24,11 +24,11 @@
     {%- if ns.open %}</span></div>{% endif -%}
 {%- set ns.spk = word.spk -%}
 <div class="transcript-turn">{% if word.spk is not none and speakers.get(word.spk) %}{% set speaker = speakers[word.spk]
-    %}<span class="speaker-badge" data-note-id="{{ note.id }}" data-speaker-id="{{ speaker.id }}"
-        data-color="{{ speaker.color }}">{{ speaker.display_name or speaker.label }}</span>{% endif %}<span
+    %}<span class="speaker-badge" role="button" tabindex="0" data-note-id="{{ note.id }}" data-speaker-id="{{ speaker.id }}"
+        data-color="{{ speaker.color }}" aria-label="Rename speaker {{ speaker.display_name or speaker.label }}">{{ speaker.display_name or speaker.label }}</span>{% endif %}<span
         class="transcript-turn-words">{%- set ns.open = true -%}
         {%- endif -%}
-        <span class="transcript-word" data-start="{{ word.s }}">{{ word.w }}</span>
+        <span class="transcript-word" role="button" tabindex="0" data-start="{{ word.s }}">{{ word.w }}</span>
         {%- endfor -%}
         {%- if ns.open %}</span></div>{% endif %}
 </div>

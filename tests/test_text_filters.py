@@ -4,7 +4,7 @@ Tests for markdown rendering and sanitization.
 
 """
 
-from services.text_filters import render_markdown
+from services.text_filters import markdown_to_text, render_markdown
 
 
 def test_render_markdown_basic():
@@ -38,3 +38,19 @@ def test_render_markdown_tables():
     html = render_markdown("| a | b |\n|---|---|\n| 1 | 2 |")
     assert "<table>" in html
     assert "<td>" in html
+
+
+def test_markdown_to_text_strips_syntax():
+    text = markdown_to_text(
+        "## Life Expectancy\nDeterminants - **bold** point and *italic*"
+    )
+    assert "##" not in text
+    assert "**" not in text
+    assert "*" not in text
+    assert "Life Expectancy" in text
+    assert "bold" in text
+
+
+def test_markdown_to_text_empty():
+    assert markdown_to_text("") == ""
+    assert markdown_to_text(None) == ""

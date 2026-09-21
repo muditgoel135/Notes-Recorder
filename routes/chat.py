@@ -30,6 +30,7 @@ from core.config import (
 from services.note_images import collect_ollama_note_images
 from services.text_filters import (
     render_markdown,
+    markdown_to_text,
     rich_note_html_to_text,
     format_display_date,
     format_display_time,
@@ -58,7 +59,7 @@ def serialize_chat_note(note: "Note", include_preview: bool = True) -> dict:
     """
 
     preview_source = (
-        note.key_points
+        markdown_to_text(note.key_points)
         or rich_note_html_to_text(note.notes_html)
         or note.transcription
         or ""
@@ -315,7 +316,7 @@ def chat() -> str:
     :rtype: str
     """
 
-    return render_template("chat.html")
+    return render_template("pages/chat.html")
 
 
 @app.route("/api/chat/recordings")

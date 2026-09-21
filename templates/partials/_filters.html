@@ -1,0 +1,128 @@
+<!-- Filter rail (Steps 4+7). Same control IDs/classes so the list scripts keep
+  working; collapsible <details> sections. Set chat_scope=true before including
+  to hide sections that don't apply to chat (statuses/empty-notes). -->
+<div id="filters-rail">
+    <details class="filter-group mb-2" open>
+        <summary class="filter-group-title">Date &amp; time</summary>
+        <div class="row g-2 mt-1">
+            <div class="col-6">
+                <label for="date-from-input" class="form-label small mb-1">From</label>
+                <input type="date" id="date-from-input" class="form-control form-control-sm">
+            </div>
+            <div class="col-6">
+                <label for="date-to-input" class="form-label small mb-1">To</label>
+                <input type="date" id="date-to-input" class="form-control form-control-sm">
+            </div>
+            <div class="col-6">
+                <label for="time-from-input" class="form-label small mb-1">Time from</label>
+                <input type="time" id="time-from-input" class="form-control form-control-sm">
+            </div>
+            <div class="col-6">
+                <label for="time-to-input" class="form-label small mb-1">Time to</label>
+                <input type="time" id="time-to-input" class="form-control form-control-sm">
+            </div>
+        </div>
+    </details>
+
+    <details class="filter-group mb-2" open>
+        <summary class="filter-group-title">Tags
+            <span id="tag-filter-count" class="badge bg-secondary d-none">0</span>
+        </summary>
+        <div class="mt-1 tag-filter-menu" id="filter-tag-tree">
+        </div>
+    </details>
+
+    <details class="filter-group mb-2" open>
+        <summary class="filter-group-title">Subject{% if not chat_scope %} / Unit{% endif %}
+            <span id="subject-filter-count" class="badge bg-secondary d-none">0</span>
+        </summary>
+        <div class="mt-1 tag-filter-menu" id="filter-subject-list">
+        </div>
+    </details>
+
+    {% if not chat_scope %}
+    <details class="filter-group mb-2">
+        <summary class="filter-group-title">Transcription
+            <span id="transcription-status-filter-count" class="badge bg-secondary d-none">0</span>
+        </summary>
+        <div class="tag-filter-menu mt-1" id="transcription-status-filter-list">
+            <ul class="tag-tree">
+                <li>
+                    <label class="d-flex align-items-center gap-2">
+                        <input type="checkbox" class="transcription-status-checkbox" value="pending">
+                        Pending
+                    </label>
+                </li>
+                <li>
+                    <label class="d-flex align-items-center gap-2">
+                        <input type="checkbox" class="transcription-status-checkbox" value="processing">
+                        Processing
+                    </label>
+                </li>
+                <li>
+                    <label class="d-flex align-items-center gap-2">
+                        <input type="checkbox" class="transcription-status-checkbox" value="completed">
+                        Completed
+                    </label>
+                </li>
+                <li>
+                    <label class="d-flex align-items-center gap-2">
+                        <input type="checkbox" class="transcription-status-checkbox" value="failed">
+                        Failed
+                    </label>
+                </li>
+            </ul>
+        </div>
+    </details>
+    {% endif %}
+
+    {% if not chat_scope %}
+    <details class="filter-group mb-2">
+        <summary class="filter-group-title">Key points
+            <span id="key-points-status-filter-count" class="badge bg-secondary d-none">0</span>
+        </summary>
+        <div class="tag-filter-menu mt-1" id="key-points-status-filter-list">
+            <ul class="tag-tree">
+                <li>
+                    <label class="d-flex align-items-center gap-2">
+                        <input type="checkbox" class="key-points-status-checkbox" value="pending">
+                        Pending
+                    </label>
+                </li>
+                <li>
+                    <label class="d-flex align-items-center gap-2">
+                        <input type="checkbox" class="key-points-status-checkbox" value="processing">
+                        Processing
+                    </label>
+                </li>
+                <li>
+                    <label class="d-flex align-items-center gap-2">
+                        <input type="checkbox" class="key-points-status-checkbox" value="completed">
+                        Completed
+                    </label>
+                </li>
+                <li>
+                    <label class="d-flex align-items-center gap-2">
+                        <input type="checkbox" class="key-points-status-checkbox" value="failed">
+                        Failed
+                    </label>
+                </li>
+            </ul>
+        </div>
+    </details>
+    {% endif %}
+
+    {% if not chat_scope %}
+    <details class="filter-group mb-2">
+        <summary class="filter-group-title">Notes</summary>
+        <div class="form-check mt-1">
+            <input class="form-check-input" type="checkbox" id="empty-notes-filter">
+            <label class="form-check-label small" for="empty-notes-filter">Empty notes only</label>
+        </div>
+    </details>
+    {% endif %}
+
+    <button id="clear-filters-btn" type="button" class="btn btn-outline-secondary btn-sm w-100">
+        Clear all filters
+    </button>
+</div>

@@ -1,0 +1,284 @@
+/* Step 2: component styles driven by tokens (first pass).
+ * Loads AFTER legacy style.css, so these rules win in both themes.
+ * Light values equal the legacy hex colors -> no visual change in light. */
+
+.rich-notes-toolbar {
+    background-color: var(--nr-toolbar-bg);
+    border-color: var(--nr-border);
+}
+
+.rich-table-menu {
+    background-color: var(--nr-menu-bg);
+    border-color: var(--nr-border);
+}
+
+.rich-notes-surface {
+    background-color: var(--nr-surface);
+    border-color: var(--nr-border);
+    color: var(--bs-body-color);
+}
+
+.rich-notes-surface table,
+.rich-notes-content table {
+    color: var(--bs-body-color);
+}
+
+.rich-notes-surface th,
+.rich-notes-surface td,
+.rich-notes-content th,
+.rich-notes-content td {
+    border-color: var(--nr-border);
+}
+
+.rich-notes-surface pre,
+.rich-notes-content pre {
+    background-color: var(--nr-pre-bg);
+    color: var(--bs-body-color);
+}
+
+.rich-color-label {
+    background: var(--nr-surface);
+    border-color: var(--nr-border);
+}
+
+.math-editor-field {
+    background-color: var(--nr-surface);
+    border-color: var(--nr-border);
+    color: var(--bs-body-color);
+}
+
+.transcript-word.active-word {
+    background-color: var(--nr-active-word-bg);
+    color: var(--nr-active-word-text);
+}
+
+.bookmark-chip {
+    background: var(--nr-chip-bg);
+    border-color: var(--nr-chip-border);
+    color: var(--nr-chip-text);
+}
+
+.bookmark-chip:hover {
+    background: var(--nr-chip-hover-bg);
+}
+
+.chat-messages {
+    background-color: var(--nr-chat-pane-bg);
+    border-color: var(--nr-border);
+    color: var(--bs-body-color);
+}
+
+.chat-message {
+    background-color: var(--nr-chat-assistant-bg);
+    border-color: var(--nr-border);
+    color: var(--bs-body-color);
+}
+
+.chat-message-user {
+    background-color: var(--nr-chat-user-bg);
+    border-color: var(--nr-chat-user-border);
+}
+
+.chat-message-assistant {
+    background-color: var(--nr-chat-assistant-bg);
+}
+
+.chat-recording-row {
+    border-color: var(--nr-border);
+}
+
+.chat-recording-row:hover {
+    background-color: var(--nr-row-alt-bg);
+}
+
+.pinned-note-item {
+    background-color: var(--nr-pinned-bg);
+}
+
+.markdown-content th {
+    background-color: var(--nr-th-bg);
+}
+
+.markdown-content th,
+.markdown-content td {
+    border-color: var(--nr-border);
+}
+
+.markdown-content tr:nth-child(even) td {
+    background-color: var(--nr-row-alt-bg);
+}
+
+/* ---- Dark-only adaptations (light theme untouched) ---- */
+
+[data-bs-theme="dark"] .tag-badge,
+[data-bs-theme="dark"] .speaker-badge {
+    text-shadow: none;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+[data-bs-theme="dark"] .rich-notes-surface blockquote,
+[data-bs-theme="dark"] .rich-notes-content blockquote {
+    border-left-color: var(--nr-border);
+    color: var(--bs-secondary-color);
+}
+
+[data-bs-theme="dark"] .rich-checklist li[data-checked="true"] {
+    color: var(--bs-secondary-color);
+}
+
+[data-bs-theme="dark"] .rich-checklist-box {
+    background-color: transparent;
+}
+
+[data-bs-theme="dark"] .math-field {
+    color: var(--bs-body-color);
+}
+
+/* MathQuill ships light-oriented styles; adapt chrome to dark. */
+[data-bs-theme="dark"] .mq-editable-field,
+[data-bs-theme="dark"] .mq-math-mode {
+    color: var(--bs-body-color);
+    border-color: var(--bs-border-color);
+}
+
+[data-bs-theme="dark"] .mq-editable-field.mq-focused {
+    border-color: #86b7fe;
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.35);
+}
+
+[data-bs-theme="dark"] .rich-video-embed {
+    border: 1px solid var(--nr-border);
+}
+
+/* ---- Step 4: library cards, filter rail, density ---- */
+
+.note-card .card-body {
+    padding: 0.9rem 1rem;
+}
+
+.note-card-check {
+    padding-top: 0.15rem;
+}
+
+.note-card audio {
+    width: min(100%, 22rem);
+}
+
+.min-w-0 {
+    min-width: 0;
+}
+
+.filter-group {
+    border: 1px solid var(--nr-border);
+    border-radius: 0.375rem;
+    padding: 0.5rem 0.75rem;
+    background-color: var(--nr-surface);
+}
+
+.filter-group-title {
+    font-weight: 600;
+    font-size: 0.875rem;
+    cursor: pointer;
+}
+
+.filter-group-title::marker {
+    color: var(--nr-text-muted);
+}
+
+#filters-offcanvas {
+    --bs-offcanvas-width: min(22rem, 85vw);
+}
+
+@media (min-width: 992px) {
+    #filters-offcanvas {
+        position: sticky;
+        top: 1rem;
+    }
+}
+
+#selection-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+}
+
+/* ---- Step 7 fix: chat filters sit on top in a responsive grid ---- */
+
+#chat-filters-top #filters-rail {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 991.98px) {
+    #chat-filters-top #filters-rail {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+#chat-filters-top #filters-rail .filter-group {
+    margin-bottom: 0 !important;
+}
+
+#chat-filters-top #clear-filters-btn {
+    grid-column: 1 / -1;
+}
+
+/* ---- Step 6: sticky detail player ---- */
+
+.sticky-player {
+    position: sticky;
+    top: 0.5rem;
+    z-index: 5;
+}
+
+body[data-density="compact"] .note-card .card-body {
+    padding: 0.5rem 0.75rem;
+    gap: 0.75rem !important;
+}
+
+body[data-density="compact"] .note-card audio {
+    width: min(100%, 16rem);
+}
+
+body[data-density="compact"] .note-card .transcript-progress {
+    display: none;
+}
+
+/* ---- Step 10: a11y + print ---- */
+
+/* Minimum 24px targets (WCAG 2.2 AA) for icon-only and chip controls. */
+.pin-note-btn,
+.bookmark-chip,
+.chat-recording-row input[type="checkbox"],
+.note-card-check input[type="checkbox"] {
+    min-width: 1.5rem;
+    min-height: 1.5rem;
+}
+
+/* Long rich-note tables scroll horizontally instead of breaking layout. */
+.rich-notes-content {
+    overflow-x: auto;
+}
+
+@media print {
+    .navbar,
+    #toast-stack,
+    .note-card-actions,
+    #selection-toolbar,
+    #density-toggle,
+    #filters-toggle-btn,
+    #chats-toggle-btn,
+    #chat-filters-toggle-btn,
+    #detail-tabs {
+        display: none !important;
+    }
+    /* Print every detail tab (transcript, key points, notes) at once. */
+    .tab-pane {
+        display: block !important;
+        opacity: 1 !important;
+    }
+    .card {
+        break-inside: avoid;
+    }
+}

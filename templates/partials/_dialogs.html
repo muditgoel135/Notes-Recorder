@@ -1,0 +1,38 @@
+<!-- Shared promise-based dialogs (Step 9). Wired by static/js/ui/dialog.js;
+  included on every page via base.html. -->
+<div class="modal fade" id="nr-confirm-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="nr-confirm-title">Confirm</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="nr-confirm-body"></div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="nr-confirm-ok">Confirm</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="nr-prompt-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form id="nr-prompt-form">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="nr-prompt-title">Input</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <label class="form-label small" id="nr-prompt-label" for="nr-prompt-input"></label>
+                    <input type="text" id="nr-prompt-input" class="form-control">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="nr-prompt-save">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

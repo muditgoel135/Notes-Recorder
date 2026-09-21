@@ -506,6 +506,24 @@ def rich_note_html_to_text(html: str | None) -> str:
     return parser.get_text()
 
 
+def markdown_to_text(markdown_text: str | None) -> str:
+    """
+    Convert markdown text into plain text.
+
+    Reuses the markdown renderer, then strips the produced HTML back to
+    text so no markdown syntax (``##``, ``**``, ...) leaks into plain-text
+    contexts such as API previews.
+
+    :param markdown_text: The markdown content to convert.
+    :type markdown_text: str or None
+    :return: The plain text representation of the markdown.
+    """
+
+    if not markdown_text:
+        return ""
+    return rich_note_html_to_text(str(render_markdown(markdown_text)))
+
+
 def format_display_date(value: str | None) -> str | None:
     """
     Format a YYYY-MM-DD date string for display as DD/MM/YYYY.

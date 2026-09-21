@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% import "_rich_notes_editor.html" as rich_notes %}
+{% block title %}Recorder{% endblock %}
+{% block body_attrs %}data-has-active-transcription="{{ has_active_transcription | tojson }}"
+data-save-recording-url="{{ url_for('save_recording') }}"{% endblock %}
+{% block content %}
+<div class="container py-4">
+    <div class="mb-3">
+        <h1 class="h4 mb-1">Recorder</h1>
+        <p class="text-muted mb-0">Capture audio, then find everything in the Library.</p>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <form id="start-recording-form">
+                <label class="form-label small mb-1 d-block">Record from microphone</label>
+                <div class="d-flex flex-wrap align-items-center gap-2">
+                    <div id="subject-radio-group"
+                        class="d-flex flex-wrap align-items-center gap-2 flex-fill"></div>
+                    <button type="submit" id="start-button" class="btn btn-primary">
+                        Start Recording
+                    </button>
+                </div>
+            </form>
+            <form id="stop-recording-form" class="mt-2">
+                <button type="submit" id="stop-button" class="btn btn-danger" disabled>
+                    Stop Recording
+                </button>
+                <button type="button" id="pause-button" class="btn btn-warning" disabled>
+                    Pause
+                </button>
+                <button type="button" id="mark-button" class="btn btn-outline-warning" disabled
+                    title="Drop a timestamp bookmark (press M while recording)">
+                    Mark
+                </button>
+                <button type="button" id="cancel-button" class="btn btn-outline-secondary" disabled>
+                    Cancel
+                </button>
+            </form>
+            <div id="recording-status" class="mt-2"></div>
+            <div id="recording-bookmarks" class="mt-2 d-none"></div>
+
+            <ul class="nav nav-tabs mt-3" id="recorder-tabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="tab-notes-btn" data-bs-toggle="tab"
+                        data-bs-target="#tab-notes-pane" type="button" role="tab" aria-controls="tab-notes-pane"
+                        aria-selected="true">
+                        Recording notes
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="tab-upload-btn" data-bs-toggle="tab" data-bs-target="#tab-upload-pane"
+                        type="button" role="tab" aria-controls="tab-upload-pane" aria-selected="false">
+                        Upload
+                    </button>
+                </li>
+            </ul>
+            <div class="tab-content pt-3">
+                <div class="tab-pane fade show active" id="tab-notes-pane" role="tabpanel"
+                    aria-labelledby="tab-notes-btn" tabindex="0">
+                    <div id="notes-tab-empty" class="small text-muted">
+                        Start a recording to take timestamped notes here. Your notes autosave
+                        while you record.
+                    </div>
+                    <div id="active-notes-panel" class="rich-notes-panel mt-3 d-none">
+                        <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+                            <div class="fw-semibold">Recording notes</div>
+                            <div id="active-notes-save-status" class="small text-muted"></div>
+                        </div>
+                        {{ rich_notes.editor("active-recording-notes-editor") }}
+                    </div>
+                </div>
+                <div class="tab-pane fade" id="tab-upload-pane" role="tabpanel" aria-labelledby="tab-upload-btn"
+                    tabindex="0">
+                    <form id="upload-form" action="{{ url_for('upload') }}" method="post"
+                        enctype="multipart/form-data">
+                        <label for="file" class="form-label small mb-1">Upload an audio file</label>
+                        <div class="input-group">
+                            <input type="file" class="form-control" name="file" id="file"
+                                accept=".wav,.mp3,.ogg,.webm,.m4a,.mp4" required>
+                            <button type="submit" class="btn btn-success">Upload</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <section aria-labelledby="recent-heading">
+        <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+            <h2 id="recent-heading" class="h5 mb-0">Recent &amp; processing</h2>
+            <a href="{{ url_for('library') }}" class="btn btn-sm btn-outline-secondary">Open Library</a>
+        </div>
+        {% if recent_notes %}
+        <div id="recent-notes-list" class="list-group">
+            {% for note in recent_notes %}
+            <div class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2"
+                data-note-id="{{ note.id }}" data-note-status="{{ note.transcription_status }}">
+                <div>
+                    <div class="fw-semibold">{{ note.title or note.subject or "Untitled" }}</div>
+                    <div class="small text-muted">
+                        {{ note.subject or "Untitled" }} &middot; {{ note.unit or "General" }} &middot;
+                        {{ note.date | display_date }} {{ note.start_time | display_time }}
+                    </div>
+                    {% if note.transcription_status in ("pending", "processing") %}
+                    <div class="progress transcript-progress mt-2" style="max-width: 16rem;">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated transcript-progress-bar" role="progressbar"
+                            data-progress="{{ note.transcription_progress or 0 }}"
+                            aria-label="Transcription progress for {{ note.title or note.subject or 'recording' }}"
+                            aria-valuemin="0" aria-valuemax="100">
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+                <span class="badge bg-secondary">{{ note.transcription_status }}</span>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-muted small">No recordings yet. Press Start Recording to capture your first note.</p>
+        {% endif %}
+    </section>
+</div>
+
+{% include "partials/_modals.html" %}
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='rich-editor.js') }}"></script>
+<script src="{{ url_for('static', filename='recording.js') }}"></script>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+<script type="module" src="{{ url_for('static', filename='js/features/editor-shell.js') }}"></script>
+<script type="module" src="{{ url_for('static', filename='js/pages/recorder.js') }}"></script>
+{% endblock %}

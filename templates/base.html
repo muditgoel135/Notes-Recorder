@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
+    <title>{% block title %}Notes Recorder{% endblock %}</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+    <script>
+        // Apply persisted theme before paint to avoid flash (Step 2 fills in full toggle logic).
+        (function () {
+            try {
+                var t = localStorage.getItem('nr-theme') || 'auto';
+                var dark = t === 'dark' || (t === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+                document.documentElement.setAttribute('data-bs-theme', dark ? 'dark' : 'light');
+            } catch (e) { /* private-mode: stay light */ }
+        })();
+    </script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='bootstrap-css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/mathquill/mathquill.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/tokens.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}">
+    {% block head_extra %}{% endblock %}
+</head>
+
+<body {% block body_attrs %}{% endblock %}>
+    {% include "partials/_navbar.html" %}
+    <main id="nr-main">
+        {% block content %}{% endblock %}
+    </main>
+    {% include "partials/_toasts.html" %}
+    {% include "partials/_dialogs.html" %}
+    <script src="{{ url_for('static', filename='bootstrap-js/bootstrap.bundle.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='vendor/jquery/jquery.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='vendor/mathquill/mathquill.js') }}"></script>
+    <script type="module" src="{{ url_for('static', filename='js/theme-toggle.js') }}"></script>
+    <script type="module" src="{{ url_for('static', filename='js/ui/toast.js') }}"></script>
+    <script type="module" src="{{ url_for('static', filename='js/api.js') }}"></script>
+    <script type="module" src="{{ url_for('static', filename='js/ui/dialog.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+
+</html>

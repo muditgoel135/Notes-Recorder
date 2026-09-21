@@ -1,3 +1,17 @@
+/* Step 9: library bulk-ops module (ported from notes-list-bulk.js). Shares
+ * selection state with library-list.js via imports; tag trees via ui/tree.js.
+ */
+import { escapeHtml } from '../utils.js';
+import { buildTagTree, renderRadioTree } from '../ui/tree.js';
+import { confirmDialog } from '../ui/dialog.js';
+import { toast } from '../ui/toast.js';
+import {
+    fetchAndRenderNotes,
+    selectedNoteIds,
+    currentPage,
+} from './library-list.js';
+import { allSubjects, allTags } from './library-taxonomy.js';
+
 async function postBulkAction(action, payload) {
     const response = await fetch(`/api/notes/${action}`, {
         method: "POST",
@@ -11,7 +25,7 @@ async function postBulkAction(action, payload) {
     return response.json();
 }
 
-function openBulkSubjectModal() {
+export function openBulkSubjectModal() {
     const select = document.getElementById("bulk-subject-select");
     select.innerHTML = allSubjects
         .map((subject) =>
@@ -26,34 +40,27 @@ function renderBulkTagTree() {
     const tree = buildTagTree(allTags);
     const container = document.getElementById("bulk-tag-tree");
     container.innerHTML = tree.length
-        ? `<ul class="tag-tree">${renderRadioNodes(tree)}</ul>`
+        ? `<ul class="tag-tree">${renderRadioTree(tree)}</ul>`
         : '<p class="text-muted small mb-0">No tags yet. Create some via Manage Tags.</p>';
 }
 
-function renderRadioNodes(nodes, name = "bulk-tag-radio") {
-    return nodes.map((node) => `
-        <li>
-            <label class="d-flex align-items-center gap-2">
-                <input type="radio" class="bulk-tag-radio" name="${name}" value="${node.id}">
-                <span class="tag-badge" style="background-color:${node.color}">${escapeHtml(node.name)}</span>
-            </label>
-            ${node.children.length ? `<ul class="tag-children">${renderRadioNodes(node.children, name)}</ul>` : ""}
-        </li>
-    `).join("");
-}
-
-function openBulkAddTagModal() {
+export function openBulkAddTagModal() {
     renderBulkTagTree();
     document.getElementById("bulk-add-tag-error").classList.add("d-none");
     bootstrap.Modal.getOrCreateInstance(document.getElementById("bulk-add-tag-modal")).show();
 }
 
-async function bulkDeleteNotes() {
+export async function bulkDeleteNotes() {
     const count = selectedNoteIds.size;
     if (count === 0) {
         return;
     }
-    if (!confirm(`Delete ${count} recording${count === 1 ? "" : "s"}?`)) {
+    if (!await confirmDialog({
+        title: "Delete recordings",
+        body: `Delete ${count} recording${count === 1 ? "" : "s"}?`,
+        confirmText: "Delete",
+        danger: true,
+    })) {
         return;
     }
     try {
@@ -61,11 +68,11 @@ async function bulkDeleteNotes() {
         selectedNoteIds.clear();
         await fetchAndRenderNotes(currentPage);
     } catch (error) {
-        alert(error.message);
+        toast.error(error.message);
     }
 }
 
-async function exportSelectedNotes() {
+export async function exportSelectedNotes() {
     if (selectedNoteIds.size === 0) {
         return;
     }
@@ -92,7 +99,7 @@ async function exportSelectedNotes() {
         anchor.remove();
         URL.revokeObjectURL(url);
     } catch (error) {
-        alert(error.message);
+        toast.error(error.message);
     }
 }
 

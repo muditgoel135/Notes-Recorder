@@ -1,0 +1,31 @@
+/* Step 1: shell-level base styles only. No visual changes intended. */
+#nr-main {
+    min-height: 60vh;
+}
+
+:focus-visible {
+    outline: 2px solid var(--nr-accent);
+    outline-offset: 2px;
+}
+
+audio {
+    width: min(100%, 26rem);
+    accent-color: var(--nr-accent);
+}
+
+.nr-worker-dot {
+    display: inline-block;
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 50%;
+    background: var(--bs-secondary);
+}
+
+.nr-worker-dot.active {
+    background: var(--bs-success);
+    box-shadow: 0 0 0 0.2rem rgba(25, 135, 84, 0.25);
+}
+
+#toast-stack {
+    z-index: 1080;
+}
