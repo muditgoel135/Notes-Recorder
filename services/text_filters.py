@@ -17,6 +17,14 @@ import bleach
 from bleach.css_sanitizer import CSSSanitizer
 
 LIST_ITEM_RE: "re.Pattern[str]" = re.compile(r"^([ \t]*)([-*+]|\d+\.)\s+")
+# Inline "*" bullets LLMs sometimes emit on a single line, e.g.
+# "**Heading** * **Label:** text * **Label2:** more".
+# Only split when the "*" is followed by something that looks like a
+# bullet label (optional bold + letter-led short text + colon) so emphasis
+# like "*italic*" or math like "5 * 3 = 15" / "5 * 10: ..." is left alone.
+INLINE_BULLET_RE: "re.Pattern[str]" = re.compile(
+    r"\s+\*\s+(?=(?:\*\*)?[A-Za-z][^*:\n]{0,80}?:)"
+)
 ALLOWED_RICH_NOTE_TAGS: list[str] = [
     "a",
     "b",
@@ -259,15 +267,42 @@ def normalize_list_indentation(text: str) -> str:
     indented code block instead of a list. This flattens such runaway
     indentation while still allowing genuine nested lists.
 
+    It also repairs two other common LLM mistakes that otherwise render as
+    literal "*" characters instead of bullet points:
+    - inline bullets on one line ("**Heading** * **A:** x * **B:** y")
+      are split onto separate lines, and
+    - a list starting immediately after a paragraph
+      ("**Heading**\\n* item") gets the blank line Python-Markdown
+      requires to recognize the list.
+
     :param text: Markdown text to normalize
     :return: Markdown text with normalized list indentation
     """
 
+    # Split inline "* Label:" bullets onto their own lines. Applied per
+    # original line so a leading bullet ("* A: x * B: y") keeps the first
+    # item and splits the rest.
+    split_lines: list[str] = []
+    for original in (text or "").split("\n"):
+        if "*" in original:
+            fixed = INLINE_BULLET_RE.sub("\n* ", original)
+            split_lines.extend(fixed.split("\n"))
+        else:
+            split_lines.append(original)
+
     stack = []  # (raw_indent, normalized_indent) per open list level
-    lines = []
-    for line in text.split("\n"):
+    lines: list[str] = []
+    prev_blank = True
+    prev_was_list = False
+    for line in split_lines:
         match = LIST_ITEM_RE.match(line)
         if match:
+            # Python-Markdown only starts a <ul>/<ol> after a blank line
+            # (or another list item). Without this, "**Heading**\\n* item"
+            # stays a paragraph with a literal "*".
+            if lines and not prev_blank and not prev_was_list:
+                lines.append("")
+                prev_blank = True
             raw_indent = len(match.group(1).expandtabs())
             while stack and stack[-1][0] > raw_indent:
                 stack.pop()
@@ -283,13 +318,19 @@ def normalize_list_indentation(text: str) -> str:
 
             stack.append((raw_indent, indent))
             lines.append(" " * indent + line[match.end(1) :])
+            prev_blank = False
+            prev_was_list = True
 
         elif line.strip():
             lines.append(line)
             stack = []
+            prev_blank = False
+            prev_was_list = False
 
         else:
             lines.append(line)
+            prev_blank = True
+            prev_was_list = False
 
     return "\n".join(lines)
 

@@ -18,6 +18,7 @@ import warnings
 import wave
 from collections.abc import Callable
 from contextlib import contextmanager
+from typing import Any
 import numpy as np
 
 # Import core extensions and models
@@ -41,10 +42,10 @@ STAGE_DIARIZING: str = "diarizing"
 DIARIZATION_START_PERCENT: int = 90
 DIARIZATION_END_PERCENT: int = 99
 
-whisper_model = None
+whisper_model: Any = None
 whisper_model_lock: threading.Lock = threading.Lock()
 
-diarization_pipeline = None
+diarization_pipeline: Any = None
 diarization_pipeline_lock: threading.Lock = threading.Lock()
 
 _ffmpeg_dll_handles: list = []
@@ -497,7 +498,9 @@ def diarize_audio(
         if progress_callback is not None:
             last_reported = {"percent": -1, "time": 0.0}
 
-            def hook(step_name, artifact, file=None, total=None, completed=None):
+            def _pipeline_hook(
+                step_name, artifact, file=None, total=None, completed=None
+            ):
                 """
                 Report pyannote's pipeline progress to the progress callback.
 
@@ -537,6 +540,8 @@ def diarize_audio(
                 last_reported["time"] = now
                 progress_callback(percent)
 
+            hook = _pipeline_hook
+
         with warnings.catch_warnings():
             # pyannote's StatisticsPooling computes a corrected std over each
             # speaker segment; segments lasting a single frame trigger a
@@ -546,12 +551,12 @@ def diarize_audio(
                 message=r"std\(\): degrees of freedom is <= 0",
                 category=UserWarning,
             )
-            output = pipeline(
+            output: Any = pipeline(
                 load_waveform(denoised_path),
                 hook=hook,
                 max_speakers=DIARIZATION_MAX_SPEAKERS,
             )
-        diarization = getattr(output, "speaker_diarization", output)
+        diarization: Any = getattr(output, "speaker_diarization", output)
         return [
             (turn.start, turn.end, label)
             for turn, _, label in diarization.itertracks(yield_label=True)

@@ -8,6 +8,8 @@ conversation endpoint.
 
 # Import required modules
 from datetime import datetime, timezone
+from typing import Any, cast
+import warnings
 import requests
 from flask import render_template, request, jsonify, Response
 from requests.adapters import HTTPAdapter
@@ -23,6 +25,7 @@ from core.config import (
     OLLAMA_API_KEY,
     OLLAMA_CHAT_URL,
     OLLAMA_MODEL,
+    OLLAMA_VERIFY_SSL,
     TRANSCRIPTION_COMPLETED,
 )
 
@@ -77,7 +80,7 @@ def serialize_chat_note(note: "Note", include_preview: bool = True) -> dict:
         "date": note.date,
         "start_time": note.start_time,
         "end_time": note.end_time,
-        "tags": [tag.to_dict() for tag in note.tags],
+        "tags": [tag.to_dict() for tag in cast(list[Any], note.tags)],
     }
 
     if include_preview:
@@ -131,14 +134,16 @@ def serialize_chat_session(
         "created_at": session.created_at.isoformat(),
         "updated_at": session.updated_at.isoformat(),
         "notes": [
-            serialize_chat_note(note, include_preview=False) for note in session.notes
+            serialize_chat_note(note, include_preview=False)
+            for note in cast(list[Any], session.notes)
         ],
-        "message_count": len(session.messages),
+        "message_count": len(cast(list[Any], session.messages)),
     }
 
     if include_messages:
         data["messages"] = [
-            serialize_chat_message(message) for message in session.messages
+            serialize_chat_message(message)
+            for message in cast(list[Any], session.messages)
         ]
 
     return data
@@ -170,7 +175,9 @@ def transcript_context_for_note(note: "Note") -> str:
     ]
 
     if note.tags:
-        parts.append("Tags: " + ", ".join(tag.name for tag in note.tags))
+        parts.append(
+            "Tags: " + ", ".join(tag.name for tag in cast(list[Any], note.tags))
+        )
 
     user_notes = rich_note_html_to_text(note.notes_html)
     if user_notes:
@@ -211,17 +218,20 @@ def call_ollama_for_chat(
     if not is_internet_available():
         return None, ("No internet connection available to reach Ollama.", 503)
 
+    session_notes = cast(list[Any], session.notes)
+    session_messages = cast(list[Any], session.messages)
+
     context = "\n\n---\n\n".join(
-        transcript_context_for_note(note) for note in session.notes
+        transcript_context_for_note(note) for note in session_notes
     )
 
-    note_images = collect_ollama_note_images(session.notes)
-    video_images = collect_video_embed_images(session.notes)
+    note_images = collect_ollama_note_images(list(session_notes))
+    video_images = collect_video_embed_images(list(session_notes))
     for image in video_images:
         if image not in note_images:
             note_images.append(image)
 
-    messages = [
+    messages: list[dict[str, Any]] = [
         {
             "role": "system",
             "content": (
@@ -233,7 +243,7 @@ def call_ollama_for_chat(
         }
     ]
 
-    context_message = {
+    context_message: dict[str, Any] = {
         "role": "user",
         "content": (
             "Selected recording context follows. Images attached to this message were "
@@ -249,11 +259,22 @@ def call_ollama_for_chat(
     messages.append(context_message)
     messages.extend(
         {"role": message.role, "content": message.content}
-        for message in session.messages
+        for message in session_messages
         if message.role in {"user", "assistant"}
     )
 
+    response: requests.Response | None = None
     try:
+        if not OLLAMA_VERIFY_SSL:
+            # User-controlled setting in .env; silences the
+            # "InsecureRequestWarning" urllib3 emits for unverified requests.
+            # Needed on machines whose CA bundle fails the handshake to
+            # ollama.com (same handling as audio.key_points._post_ollama).
+            warnings.filterwarnings(
+                "ignore",
+                message="Unverified HTTPS request",
+                category=__import__("urllib3").exceptions.InsecureRequestWarning,
+            )
         retry = Retry(
             total=3,
             connect=3,
@@ -265,6 +286,7 @@ def call_ollama_for_chat(
         )
         adapter = HTTPAdapter(max_retries=retry)
         with requests.Session() as chat_session:
+            chat_session.verify = OLLAMA_VERIFY_SSL
             chat_session.mount("https://", adapter)
             chat_session.mount("http://", adapter)
             response = chat_session.post(
@@ -284,16 +306,20 @@ def call_ollama_for_chat(
 
     except requests.HTTPError as exc:
         detail = str(exc)
-        try:
-            detail = response.json().get("error") or detail
+        if response is not None:
+            try:
+                detail = response.json().get("error") or detail
 
-        except (ValueError, AttributeError):
-            pass
+            except (ValueError, AttributeError):
+                pass
 
         return None, (detail, 502)
 
     except requests.RequestException as exc:
         return None, (str(exc) or "Ollama request failed.", 502)
+
+    if response is None:
+        return None, ("Ollama request failed.", 502)
 
     try:
         content = (response.json().get("message", {}).get("content", "") or "").strip()
@@ -371,7 +397,7 @@ def api_chat_session(session_id: int) -> Response:
 
 
 @app.route("/api/chat/sessions", methods=["POST"])
-def create_chat_session() -> Response:
+def create_chat_session() -> Response | tuple[Response, int]:
     """
     Create a chat session from the requested note ids.
 
@@ -412,14 +438,14 @@ def create_chat_session() -> Response:
         if len(notes) > 1:
             title = f"{title} + {len(notes) - 1} more"
 
-    session = ChatSession(title=title[:200], notes=notes)
+    session = ChatSession(title=title[:200], notes=notes)  # type: ignore
     db.session.add(session)
     db.session.commit()
     return jsonify({"session": serialize_chat_session(session, include_messages=True)})
 
 
 @app.route("/api/chat/sessions/<int:session_id>/messages", methods=["POST"])
-def create_chat_message(session_id: int) -> Response:
+def create_chat_message(session_id: int) -> Response | tuple[Response, int]:
     """
     Add a user message to a session and get the assistant's reply.
 
@@ -435,13 +461,16 @@ def create_chat_message(session_id: int) -> Response:
     if not content:
         return jsonify({"error": "Enter a message first."}), 400
 
+    session_notes_list = cast(list[Any], session.notes)
     transcript_ready_notes = [
         note
-        for note in session.notes
+        for note in session_notes_list
         if note.transcription_status == TRANSCRIPTION_COMPLETED and note.transcription
     ]
 
-    if not transcript_ready_notes or len(transcript_ready_notes) != len(session.notes):
+    if not transcript_ready_notes or len(transcript_ready_notes) != len(
+        session_notes_list
+    ):
         return (
             jsonify(
                 {"error": "This chat has recordings without completed transcripts."}
@@ -449,7 +478,7 @@ def create_chat_message(session_id: int) -> Response:
             400,
         )
 
-    user_message = ChatMessage(session=session, role="user", content=content)
+    user_message = ChatMessage(session=session, role="user", content=content)  # type: ignore
     session.updated_at = datetime.now(timezone.utc)
     db.session.add(user_message)
     db.session.commit()
@@ -464,7 +493,7 @@ def create_chat_message(session_id: int) -> Response:
             status_code,
         )
 
-    assistant_message = ChatMessage(session=session, role="assistant", content=answer)
+    assistant_message = ChatMessage(session=session, role="assistant", content=answer)  # type: ignore
     session.updated_at = datetime.now(timezone.utc)
     db.session.add(assistant_message)
     db.session.commit()
@@ -480,7 +509,7 @@ def create_chat_message(session_id: int) -> Response:
 
 
 @app.route("/api/chat/sessions/<int:session_id>/title", methods=["POST"])
-def update_chat_session_title(session_id: int) -> Response:
+def update_chat_session_title(session_id: int) -> Response | tuple[Response, int]:
     """
     Update a chat session's title.
 

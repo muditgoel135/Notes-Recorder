@@ -119,9 +119,8 @@ def save_audio_file(
     date = now.strftime("%Y-%m-%d")
     start_time = start_time or now.strftime("%H:%M:%S")
     end_time = end_time or now.strftime("%H:%M:%S")
-    extension = file_storage.filename.rsplit(".", 1)[
-        1
-    ].lower()  # pyright: ignore[reportOptionalMemberAccess]
+    original_filename = file_storage.filename or ""
+    extension = original_filename.rsplit(".", 1)[-1].lower()
     safe_subject = secure_filename(subject or "unnamed") or "unnamed"
     timestamp = now.strftime("%Y%m%d_%H%M%S")
     filename = f"{timestamp}_{safe_subject}_{uuid.uuid4().hex}.{extension}"
@@ -176,13 +175,10 @@ def create_recording_session(
         session_key=uuid.uuid4().hex,  # pyright: ignore[reportCallIssue]
         subject=(subject or "unnamed")[:100],  # pyright: ignore[reportCallIssue]
         unit=DEFAULT_UNIT,  # pyright: ignore[reportCallIssue]
-        start_time=start_time
-        or now.strftime("%H:%M:%S"),  # pyright: ignore[reportCallIssue]
+        start_time=(start_time or now.strftime("%H:%M:%S")),  # pyright: ignore[reportCallIssue]
         status=ACTIVE_RECORDING_STATUS,  # pyright: ignore[reportCallIssue]
         mime_type=(mime_type or "")[:100],  # pyright: ignore[reportCallIssue]
-        extension=(
-            extension if extension in ALLOWED_EXTENSIONS else "webm"
-        ),  # pyright: ignore[reportCallIssue]
+        extension=(extension if extension in ALLOWED_EXTENSIONS else "webm"),  # pyright: ignore[reportCallIssue]
         segments_json="[]",  # pyright: ignore[reportCallIssue]
         bookmarks_json="[]",  # pyright: ignore[reportCallIssue]
     )
@@ -346,8 +342,7 @@ def finish_recording_session(
         unit=session.unit or DEFAULT_UNIT,  # pyright: ignore[reportCallIssue]
         recording_path=relative_path,  # pyright: ignore[reportCallIssue]
         notes_html=session.notes_html,  # pyright: ignore[reportCallIssue]
-        bookmarks_json=session.bookmarks_json
-        or "[]",  # pyright: ignore[reportCallIssue]
+        bookmarks_json=(session.bookmarks_json or "[]"),  # pyright: ignore[reportCallIssue]
         transcription_status=TRANSCRIPTION_PENDING,  # pyright: ignore[reportCallIssue]
     )
 

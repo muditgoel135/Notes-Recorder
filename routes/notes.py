@@ -10,7 +10,7 @@ metadata updates.
 import os
 import re
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from flask import (
     render_template,
     render_template_string,
@@ -20,6 +20,7 @@ from flask import (
     jsonify,
     Response,
 )
+from werkzeug.wrappers import Response as WerkzeugResponse
 
 from werkzeug.utils import secure_filename
 
@@ -263,7 +264,7 @@ def api_notes_ids() -> Response:
 
 
 @app.route("/api/notes/status")
-def api_notes_status() -> Response:
+def api_notes_status() -> Response | tuple[Response, int]:
     """
     Return lightweight transcription/key-points status for notes (Step 5).
 
@@ -308,7 +309,7 @@ def api_notes_status() -> Response:
 
 
 @app.route("/api/notes/card")
-def api_note_card() -> Response:
+def api_note_card() -> Response | tuple[Response, int]:
     """
     Return the rendered library card for a single note (Step 5).
 
@@ -332,7 +333,7 @@ def api_note_card() -> Response:
 
 
 @app.route("/api/note_images", methods=["POST"])
-def upload_note_image() -> Response:
+def upload_note_image() -> Response | tuple[Response, int]:
     """
     Upload an image to be embedded in a note.
 
@@ -341,22 +342,23 @@ def upload_note_image() -> Response:
     """
 
     image_file = request.files.get("image")
-    if not image_file or image_file.filename == "":
+    if not image_file or not image_file.filename:
         return jsonify({"error": "No image received."}), 400
 
-    extension = image_file.filename.rsplit(".", 1)[-1].lower()
+    original_filename = image_file.filename
+    extension = original_filename.rsplit(".", 1)[-1].lower()
     if extension not in {"png", "jpg", "jpeg", "gif", "webp"}:
         return jsonify({"error": "Unsupported image type."}), 400
 
     os.makedirs(NOTE_IMAGES_DIR, exist_ok=True)
-    safe_name = secure_filename(image_file.filename.rsplit(".", 1)[0]) or "image"
+    safe_name = secure_filename(original_filename.rsplit(".", 1)[0]) or "image"
     filename = f"{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{safe_name}_{uuid.uuid4().hex}.{extension}"
     image_file.save(os.path.join(NOTE_IMAGES_DIR, filename))
     return jsonify({"url": url_for("note_image_file", filename=filename)})
 
 
 @app.route("/download_transcript/<int:note_id>")
-def download_transcript(note_id: int) -> Response:
+def download_transcript(note_id: int) -> Response | tuple[Response, int]:
     """
     Download a note's transcript as a text file.
 
@@ -379,7 +381,7 @@ def download_transcript(note_id: int) -> Response:
 
 
 @app.route("/download_key_points/<int:note_id>")
-def download_key_points(note_id: int) -> Response:
+def download_key_points(note_id: int) -> Response | tuple[Response, int]:
     """
     Download a note's key points as a markdown file.
 
@@ -404,7 +406,7 @@ def download_key_points(note_id: int) -> Response:
 
 
 @app.route("/notes/<int:note_id>/tags", methods=["POST"])
-def set_note_tags(note_id: int) -> Response:
+def set_note_tags(note_id: int) -> Response | tuple[Response, int]:
     """
     Set the tags assigned to a note.
 
@@ -431,7 +433,7 @@ def set_note_tags(note_id: int) -> Response:
 
 
 @app.route("/notes/<int:note_id>/subject", methods=["POST"])
-def update_note_subject(note_id: int) -> Response:
+def update_note_subject(note_id: int) -> Response | tuple[Response, int]:
     """
     Update a note's subject and unit.
 
@@ -483,7 +485,7 @@ def toggle_note_pin(note_id: int) -> Response:
     return jsonify({"id": note.id, "pinned": note.pinned})
 
 
-def parse_note_date(value: str) -> "datetime.date | None":
+def parse_note_date(value: str) -> date | None:
     """
     Parse a date string into a date object.
 
@@ -500,7 +502,7 @@ def parse_note_date(value: str) -> "datetime.date | None":
         return None
 
 
-def parse_note_time(value: str | None) -> "datetime.time | None":
+def parse_note_time(value: str | None) -> time | None:
     """
     Parse a time string into a time object, accepting HH:MM or HH:MM:SS.
 
@@ -522,7 +524,7 @@ def parse_note_time(value: str | None) -> "datetime.time | None":
 
 
 @app.route("/notes/<int:note_id>/datetime", methods=["POST"])
-def update_note_datetime(note_id: int) -> Response:
+def update_note_datetime(note_id: int) -> Response | tuple[Response, int]:
     """
     Update a note's date and start time, preserving its duration.
 
@@ -562,7 +564,7 @@ def update_note_datetime(note_id: int) -> Response:
 
 
 @app.route("/notes/<int:note_id>/speakers/<int:speaker_id>/rename", methods=["POST"])
-def rename_speaker(note_id: int, speaker_id: int) -> Response:
+def rename_speaker(note_id: int, speaker_id: int) -> Response | tuple[Response, int]:
     """
     Rename a speaker of a note.
 
@@ -587,7 +589,7 @@ def rename_speaker(note_id: int, speaker_id: int) -> Response:
 
 
 @app.route("/notes/<int:note_id>/retry_transcription", methods=["POST"])
-def retry_transcription(note_id: int) -> Response:
+def retry_transcription(note_id: int) -> Response | tuple[Response, int]:
     """
     Reset a note's transcription status and re-enqueue it.
 
@@ -616,7 +618,7 @@ def retry_transcription(note_id: int) -> Response:
 
 
 @app.route("/notes/<int:note_id>/retry_key_points", methods=["POST"])
-def retry_key_points(note_id: int) -> Response:
+def retry_key_points(note_id: int) -> Response | tuple[Response, int]:
     """
     Reset a note's key points status and re-enqueue extraction.
 
@@ -721,7 +723,7 @@ def update_note(note_id: int) -> Response:
 
 
 @app.route("/delete/<int:note_id>", methods=["POST"])
-def delete_note(note_id: int) -> Response:
+def delete_note(note_id: int) -> Response | WerkzeugResponse:
     """
     Delete a note and its recording file.
 
