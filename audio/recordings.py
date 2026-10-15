@@ -127,6 +127,18 @@ def save_audio_file(
     file_path = os.path.join(RECORDINGS_DIR, filename)
     file_storage.save(file_path)
 
+    # The stored end_time must reflect the actual audio length
+    # (end = start + duration), not the wall-clock save moment. This fixes
+    # uploads that arrive without explicit times, where start and end would
+    # otherwise both default to now (zero-length span).
+    probed_duration = get_audio_duration_seconds(file_path)
+    if probed_duration is not None:
+        computed_end = end_time_from_start_and_duration(
+            start_time, probed_duration
+        )
+        if computed_end is not None:
+            end_time = computed_end
+
     if extension == "webm":
         add_webm_duration_metadata(
             file_path, duration_seconds_from_times(start_time, end_time)
@@ -281,7 +293,8 @@ def finish_recording_session(
     :param end_time: Optional end time of the recording in HH:MM:SS format
     :type end_time: str
     :param recording_duration: Optional true recorded duration in seconds,
-        excluding any paused stretches (used for WebM duration metadata).
+        excluding any paused stretches. When provided, the stored end_time is
+        derived as start_time + duration (not the wall-clock Stop moment).
     :type recording_duration: int or None
     :return: The newly created Note object.
     :rtype: Note
@@ -310,7 +323,13 @@ def finish_recording_session(
         raise ValueError("No recording chunks were received.")
 
     now = datetime.datetime.now()
-    end_time = end_time or now.strftime("%H:%M:%S")
+    if recording_duration and recording_duration > 0:
+        computed_end = end_time_from_start_and_duration(
+            session.start_time, recording_duration
+        )
+        end_time = computed_end or end_time or now.strftime("%H:%M:%S")
+    else:
+        end_time = end_time or now.strftime("%H:%M:%S")
     final_path = build_recording_path(session, now)
     segment_paths = build_segment_files(session, chunks)
 
@@ -504,6 +523,90 @@ def duration_seconds_from_times(
         end += datetime.timedelta(days=1)
 
     return max(0, int(round((end - start).total_seconds())))
+
+
+def end_time_from_start_and_duration(
+    start_time: str | None, duration_seconds: int | float | None
+) -> str | None:
+    """
+    Compute an end time string from a start time plus a recorded duration.
+
+    The stored end_time is a wall-clock ``HH:MM:SS`` value, but the true
+    recorded audio excludes paused stretches, so ``end = start + duration``
+    rather than the wall-clock Stop moment. Wraps past midnight.
+
+    :param start_time: The starting time as a string ("HH:MM:SS").
+    :type start_time: str
+    :param duration_seconds: Recorded duration in seconds.
+    :type duration_seconds: int or float or None
+    :return: End time string ("HH:MM:SS"), or None if inputs are invalid.
+    :rtype: str or None
+    """
+
+    if not start_time or duration_seconds is None:
+        return None
+
+    try:
+        start = datetime.datetime.strptime(start_time, "%H:%M:%S")
+        duration = float(duration_seconds)
+
+    except (ValueError, TypeError):
+        return None
+
+    if duration < 0:
+        duration = 0
+
+    end = start + datetime.timedelta(seconds=round(duration))
+    return end.strftime("%H:%M:%S")
+
+
+def get_audio_duration_seconds(file_path: str) -> float | None:
+    """
+    Probe an audio file's duration in seconds with ffprobe.
+
+    Returns None when ffprobe is missing, the file is unreadable, or no
+    duration is reported (e.g. unpatched WebM), so callers fall back to
+    wall-clock arithmetic.
+
+    :param file_path: Absolute path to the audio file.
+    :type file_path: str
+    :return: Duration in seconds, or None when unavailable.
+    :rtype: float or None
+    """
+
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                file_path,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    except (FileNotFoundError, OSError):
+        return None
+
+    if result.returncode != 0:
+        return None
+
+    try:
+        duration = float((result.stdout or "").strip())
+
+    except (TypeError, ValueError):
+        return None
+
+    if duration <= 0:
+        return None
+
+    return duration
 
 
 def add_webm_duration_metadata(file_path: str, duration_seconds: int | None) -> bool:

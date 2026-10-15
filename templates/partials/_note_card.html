@@ -55,7 +55,12 @@
             </div>
             {% endif %}
         </div>
-        <div class="note-card-actions d-flex flex-row flex-lg-column gap-1 align-items-start">
+        <div class="note-card-actions d-flex flex-row flex-lg-column gap-1 align-items-stretch">
+            {# Primary action first so transcript/key points detail is easy to find. #}
+            <a class="btn btn-primary fw-semibold open-note-btn" href="/notes/{{ note.id }}"
+                aria-label="Open {{ title }} details">
+                Open →
+            </a>
             <button type="button"
                 class="btn btn-sm btn-outline-secondary pin-note-btn{% if note.pinned %} pinned{% endif %}"
                 data-note-id="{{ note.id }}" data-pinned="{{ 'true' if note.pinned else 'false' }}"
@@ -72,10 +77,6 @@
                 data-tag-ids='{{ note.tags | map(attribute="id") | list | tojson }}'>
                 Tags
             </button>
-            {# Detail route lands in Step 6; until then this 404s (recorded in plan). #}
-            <a class="btn btn-sm btn-outline-primary" href="/notes/{{ note.id }}">
-                Open
-            </a>
             <button type="button" class="btn btn-sm btn-danger delete-note-btn" data-note-id="{{ note.id }}">
                 Delete
             </button>

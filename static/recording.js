@@ -385,11 +385,11 @@ async function waitForPendingChunkUploads() {
 async function finishRecordingSession() {
     await saveActiveRecordingNotesNow();
     await saveBookmarksToServerNow();
-    const body = { end_time: getTimeString(new Date()) };
-    // Wall-clock start/end includes paused stretches; the assembled media
-    // only contains recorded (non-paused) audio, so report the true recorded
-    // duration so the webm duration metadata stays accurate.
+    // Stored end_time must be start + recorded audio (pauses excluded), not
+    // the wall-clock Stop moment.
     const recordedSeconds = getRecordedElapsedMs() / 1000;
+    const endMs = getSessionStartBaseMs() + getRecordedElapsedMs();
+    const body = { end_time: getTimeString(new Date(endMs)) };
     if (recordedSeconds > 0) {
         body.recording_duration = Math.round(recordedSeconds);
     }

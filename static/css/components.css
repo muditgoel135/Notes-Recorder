@@ -256,6 +256,13 @@ body[data-density="compact"] .note-card .transcript-progress {
     min-height: 1.5rem;
 }
 
+/* Primary Open action: full-width in the card column, solid so it stands out
+   from the secondary Tags/Pin/Delete controls. */
+.note-card-actions .open-note-btn {
+    min-width: 6.5rem;
+    white-space: nowrap;
+}
+
 /* Long rich-note tables scroll horizontally instead of breaking layout. */
 .rich-notes-content {
     overflow-x: auto;
